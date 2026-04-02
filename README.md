@@ -1,16 +1,25 @@
-# React + Vite
+# Cost-Splitter
+**Live Demo:** https://cost-splitter-psi.vercel.app/
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Cost slitter is an application designed for couples or friends who shop together but don't consume items equally. Instead of simple 50/50 splits, it allows users to assign exact consumption percentages per item and automatically calculates a running net balance.
 
-Currently, two official plugins are available:
+## Features
+* **Granular Splitting:** Assign consumption percentages (e.g., 60/40, 100/0) for each item.
+* **Assing paid by:** Assign which user paid for the item.
+* **Strict Validation:** Form logic ensures item shares always equal exactly 100% before submission.
+* **Data Persistence:** Utilizes the browser's `localStorage` to save the item list and net balance across sessions, allowing users to build a list over several days of shopping.
+* **Inline Editing:** Quick renaming of users and updating of existing receipt items.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## How is the Ledger Calculated?
+The app calculates "who owes whom" using a Paid vs. Consumed model:
+1. **Amount Paid:** The total cost of the item if the user is marked as the payer (otherwise €0.00).
+2. **Amount Consumed:** The total cost multiplied by the user's percentage share.
+3. **Net Balance:** `(Amount Paid) - (Amount Consumed)`.
+*A negative balance means the user consumed more than they paid for (they owe money). A positive balance means they paid for more than they consumed (they are owed money).*
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Tech Stack
+* **Frontend:** React (Hooks: `useState`, `useEffect`, `useRef`)
+* **Styling:** Tailwind CSS v4
+* **Build Tool:** Vite
+* **Deployment:** Vercel
+* **State Management:** In-memory React state synced with `localStorage`
