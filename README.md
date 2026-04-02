@@ -1,7 +1,7 @@
 # Cost-Splitter
 **Live Demo:** https://cost-splitter-psi.vercel.app/
 
-Cost slitter is an application designed for couples or friends who shop together but don't consume items equally. Instead of simple 50/50 splits, it allows users to assign exact consumption percentages per item and automatically calculates a running net balance.
+Cost splitter is an application designed for couples or friends who shop together but don't consume items equally. Instead of simple 50/50 splits, it allows users to assign exact consumption percentages per item and automatically calculates a running net balance.
 
 ## Features
 * **Granular Splitting:** Assign consumption percentages (e.g., 60/40, 100/0) for each item.
