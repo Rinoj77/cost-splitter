@@ -469,25 +469,100 @@ function ItemRow({ item, names, onEdit, onDelete }) {
 
 // ─── Item List ────────────────────────────────────────────────────────────────
 
+/** Substring match, or subsequence match so short queries like "pst" still match "Pasta". */
+function itemNameMatchesSearch(name, rawQuery) {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+  const n = name.toLowerCase();
+  const parts = query.split(/\s+/).filter(Boolean);
+  return parts.every((part) => {
+    if (n.includes(part)) return true;
+    let pi = 0;
+    for (let i = 0; i < n.length && pi < part.length; i++) {
+      if (n[i] === part[pi]) pi++;
+    }
+    return pi === part.length;
+  });
+}
+
+function ItemListSearch({ value, onChange }) {
+  const inputBase =
+    "w-full bg-stone-50 border border-stone-300 rounded-xl pl-3 pr-10 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition";
+
+  return (
+    <div className="relative mb-4">
+      <label htmlFor="item-list-search" className="sr-only">
+        Search items by name
+      </label>
+      <input
+        id="item-list-search"
+        type="text"
+        role="searchbox"
+        autoComplete="off"
+        placeholder="Search items by name…"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={inputBase}
+      />
+      {value.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Clear search"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/80 transition-colors"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ItemList({ items, names, onEdit, onDelete }) {
-  const total = items.reduce((s, i) => s + i.cost, 0);
+  const [search, setSearch] = useState("");
+  const filtered = search.trim()
+    ? items.filter((i) => itemNameMatchesSearch(i.name, search))
+    : items;
+  const totalAll = items.reduce((s, i) => s + i.cost, 0);
+  const totalFiltered = filtered.reduce((s, i) => s + i.cost, 0);
+  const isFiltering = search.trim().length > 0;
+  const showColumnHeaders = items.length > 0 && filtered.length > 0;
 
   return (
     <div>
+      <ItemListSearch value={search} onChange={setSearch} />
+
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg text-stone-800" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>
           Items
         </h2>
         {items.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Tag color="stone">{items.length} item{items.length !== 1 ? "s" : ""}</Tag>
-            <Tag color="stone">€{total.toFixed(2)} total</Tag>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {isFiltering ? (
+              <>
+                <Tag color="stone">
+                  {filtered.length} of {items.length} shown
+                </Tag>
+                <Tag color="stone">€{totalFiltered.toFixed(2)} shown</Tag>
+              </>
+            ) : (
+              <>
+                <Tag color="stone">{items.length} item{items.length !== 1 ? "s" : ""}</Tag>
+                <Tag color="stone">€{totalAll.toFixed(2)} total</Tag>
+              </>
+            )}
           </div>
         )}
       </div>
 
       {/* Column headers — mirrors the form */}
-      {items.length > 0 && (
+      {showColumnHeaders && (
         <div className="grid grid-cols-[2fr_1fr_1fr_auto_1fr_auto] gap-3 items-end px-4 mb-2">
           {[
             { label: "Item Name", align: "text-left" },
@@ -504,16 +579,21 @@ function ItemList({ items, names, onEdit, onDelete }) {
         </div>
       )}
 
-      {items.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          {items.map((item) => (
-            <ItemRow key={item.id} item={item} names={names} onEdit={onEdit} onDelete={onDelete} />
-          ))}
-        </div>
-      ) : (
+      {items.length === 0 ? (
         <div className="text-center py-16 text-stone-300 border border-dashed border-stone-200 rounded-2xl">
           <p className="text-4xl mb-3">🧾</p>
           <p className="font-mono text-sm">No items yet. Add one above.</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-14 text-stone-400 border border-dashed border-stone-200 rounded-2xl bg-white/50">
+          <p className="font-mono text-sm mb-1">No items match &ldquo;{search.trim()}&rdquo;</p>
+          <p className="text-xs text-stone-400">Try another name or clear the search.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filtered.map((item) => (
+            <ItemRow key={item.id} item={item} names={names} onEdit={onEdit} onDelete={onDelete} />
+          ))}
         </div>
       )}
     </div>
