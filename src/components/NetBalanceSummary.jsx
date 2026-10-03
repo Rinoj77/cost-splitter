@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { computeBalances } from "../lib/ledger";
 
 export function NetBalanceSummary({ items, names, onClearAll }) {
-  const { netA, netB, settlement } = computeBalances(items);
+  const { netA, netB, settlement } = useMemo(() => computeBalances(items), [items]);
   const hasItems = items.length > 0;
   return (
     <div className="bg-stone-900 text-stone-100 rounded-2xl p-5 mb-6 relative overflow-hidden">

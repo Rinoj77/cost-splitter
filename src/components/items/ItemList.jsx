@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ItemRow } from "./ItemRow";
 import { TripCard } from "../trips/TripCard";
 import { Tag } from "../ui/Tag";
@@ -8,27 +8,40 @@ import { SERIF } from "../../lib/styles";
 
 export function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUpdateTrip, onDeleteTrip, onAddItem }) {
   const [search, setSearch] = useState("");
-  const soloItems = items.filter(i => !i.groupId);
   const q = search.trim();
 
-  const entries = [];
-  for (const trip of trips) {
-    const tripItems = items.filter(i => i.groupId === trip.id);
-    const tripNameMatches = !q || matchesSearch(trip.name, q);
-    const matchedItems = q ? tripItems.filter(i => matchesSearch(i.name, q)) : tripItems;
-    if (tripNameMatches || matchedItems.length > 0) {
-      // Cards always get the full item list; matchedItemIds only marks which items hit the search.
-      const matchedItemIds = q && !tripNameMatches ? new Set(matchedItems.map(i => i.id)) : null;
-      entries.push({ type: "trip", id: trip.id, sortTime: tripSortTime(trip), createdAt: trip.createdAt, trip, tripItems, matchedItemIds });
+  // Group trip items by trip id in one pass instead of filtering the full list per trip.
+  const { soloItems, tripItemsById } = useMemo(() => {
+    const solo = [];
+    const byTrip = new Map();
+    for (const item of items) {
+      if (!item.groupId) solo.push(item);
+      else if (byTrip.has(item.groupId)) byTrip.get(item.groupId).push(item);
+      else byTrip.set(item.groupId, [item]);
     }
-  }
-  for (const item of soloItems) {
-    if (!q || matchesSearch(item.name, q)) entries.push({ type: "item", id: item.id, sortTime: item.createdAt, createdAt: item.createdAt, item });
-  }
-  entries.sort((a, b) => b.sortTime - a.sortTime || b.createdAt - a.createdAt);
+    return { soloItems: solo, tripItemsById: byTrip };
+  }, [items]);
+
+  const entries = useMemo(() => {
+    const result = [];
+    for (const trip of trips) {
+      const tripItems = tripItemsById.get(trip.id) ?? [];
+      const tripNameMatches = !q || matchesSearch(trip.name, q);
+      const matchedItems = q ? tripItems.filter(i => matchesSearch(i.name, q)) : tripItems;
+      if (tripNameMatches || matchedItems.length > 0) {
+        // Cards always get the full item list; matchedItemIds only marks which items hit the search.
+        const matchedItemIds = q && !tripNameMatches ? new Set(matchedItems.map(i => i.id)) : null;
+        result.push({ type: "trip", id: trip.id, sortTime: tripSortTime(trip), createdAt: trip.createdAt, trip, tripItems, matchedItemIds });
+      }
+    }
+    for (const item of soloItems) {
+      if (!q || matchesSearch(item.name, q)) result.push({ type: "item", id: item.id, sortTime: item.createdAt, createdAt: item.createdAt, item });
+    }
+    return result.sort((a, b) => b.sortTime - a.sortTime || b.createdAt - a.createdAt);
+  }, [trips, tripItemsById, soloItems, q]);
 
   const hasContent = items.length > 0 || trips.length > 0;
-  const totalCost = items.reduce((s, i) => s + i.cost, 0);
+  const totalCost = useMemo(() => items.reduce((s, i) => s + i.cost, 0), [items]);
 
   return (
     <div>

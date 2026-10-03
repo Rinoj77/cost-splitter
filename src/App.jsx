@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { LS_ITEMS, LS_NAMES, LS_TRIPS, loadItems, loadNames, loadTrips } from "./lib/storage";
 import { SERIF } from "./lib/styles";
 import { newRecordMeta } from "./lib/items";
 import { useStoredState } from "./hooks/useStoredState";
+import { ConfirmPopup } from "./components/ui/ConfirmPopup";
 import { EditableName } from "./components/ui/EditableName";
 import { NetBalanceSummary } from "./components/NetBalanceSummary";
 import { FormTabContainer } from "./components/forms/FormTabContainer";
@@ -11,6 +13,7 @@ export default function App() {
   const [items, setItems] = useStoredState(LS_ITEMS, loadItems);
   const [trips, setTrips] = useStoredState(LS_TRIPS, loadTrips);
   const [names, setNames] = useStoredState(LS_NAMES, loadNames);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   function handleSaveItem(item) { setItems(prev => [item, ...prev]); }
 
@@ -30,13 +33,16 @@ export default function App() {
   function handleAddItem(item) { setItems(prev => [...prev, item]); }
 
   function handleClearAll() {
-    if (window.confirm("Start fresh? This will clear all items and trips for the new week.")) {
-      setItems([]); setTrips([]);
-    }
+    setItems([]); setTrips([]);
+    setShowClearConfirm(false);
   }
 
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(160deg, #f7f4ef 0%, #ede9e2 100%)", fontFamily: "'DM Sans', sans-serif" }}>
+      {showClearConfirm && (
+        <ConfirmPopup message="Start fresh? This will clear all items and trips for the new week."
+          confirmLabel="Clear all" onConfirm={handleClearAll} onCancel={() => setShowClearConfirm(false)} />
+      )}
       <div className="max-w-5xl mx-auto px-4 py-10">
         <header className="mb-8">
           <div className="flex items-end justify-between">
@@ -53,7 +59,7 @@ export default function App() {
           <div className="mt-4 h-px bg-gradient-to-r from-stone-300 via-stone-200 to-transparent" />
         </header>
 
-        <NetBalanceSummary items={items} names={names} onClearAll={handleClearAll} />
+        <NetBalanceSummary items={items} names={names} onClearAll={() => setShowClearConfirm(true)} />
         <FormTabContainer names={names} onSaveItem={handleSaveItem} onSaveTrip={handleSaveTrip} />
         <ItemList items={items} trips={trips} names={names}
           onUpdateItem={handleUpdateItem} onDeleteItem={handleDeleteItem}
