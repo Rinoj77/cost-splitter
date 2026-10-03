@@ -55,6 +55,8 @@ const TRIP_COLS = "grid-cols-[minmax(0,1fr)_160px_90px_90px]";
 // Same + accordion toggle column
 const TRIP_COLS_ACC = "grid-cols-[minmax(0,1fr)_160px_90px_90px_32px]";
 
+const SERIF = { fontFamily: "'DM Serif Display', Georgia, serif" };
+
 // ─── Ledger logic ──────────────────────────────────────────────────────────────
 
 // Unique id plus creation time (used for newest-first ordering).
@@ -307,22 +309,110 @@ function TripMetaColHeaders({ names, withAccordion = false }) {
   );
 }
 
+// ─── Shared item pieces ────────────────────────────────────────────────────────
+
+// Share-percent total of two form strings (blank/invalid counts as 0).
+function shareTotal(shareA, shareB) {
+  const a = parseFloat(shareA), b = parseFloat(shareB);
+  return (isNaN(a) ? 0 : a) + (isNaN(b) ? 0 : b);
+}
+
+// Returns the cleaned item fields (name, cost, shareA, shareB, paidBy) if the form
+// fields are complete and valid, otherwise null. Callers add id/createdAt/groupId.
+function validateItem(fields, paidBy) {
+  const cost = parseFloat(fields.cost);
+  const shareA = parseFloat(fields.shareA);
+  const shareB = parseFloat(fields.shareB);
+  if (!fields.name.trim() || !(cost > 0) || !totalIs100(shareA + shareB) || !paidBy) return null;
+  return { name: fields.name.trim(), cost, shareA, shareB, paidBy };
+}
+
+const SHARE_CELL_STYLES = {
+  form: { input: shareInputCls, percent: "text-stone-400 text-sm" },
+  amber: { input: shareInputAmberCls, percent: "text-stone-400 text-sm" },
+  ghost: {
+    input: "w-12 bg-transparent border-none outline-none text-sm font-mono text-right placeholder-stone-300",
+    percent: "text-stone-400 text-xs",
+  },
+};
+
+// One "NN %" input cell; onChange receives the raw input string.
+function ShareCell({ value, onChange, variant = "form" }) {
+  const styles = SHARE_CELL_STYLES[variant];
+  return (
+    <div className="flex items-center gap-1 justify-center">
+      <input type="number" placeholder="0" min="0" max="100" step="1" value={value}
+        onChange={e => onChange(e.target.value)} className={styles.input} />
+      <span className={styles.percent}>%</span>
+    </div>
+  );
+}
+
+// Read-only item cells: Name | Cost | A% | A paid | B% | B paid | action slot.
+function ItemDisplayRow({ item, compact = false, className = "", action = null }) {
+  return (
+    <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center ${className}`}>
+      <span className={`text-stone-800 font-medium truncate ${compact ? "text-sm" : ""}`} style={SERIF}>{item.name}</span>
+      <span className={`font-mono text-stone-700 text-right ${compact ? "text-sm" : "font-semibold"}`}>€{item.cost.toFixed(2)}</span>
+      <div className="flex justify-center"><Tag color="stone">{item.shareA}%</Tag></div>
+      <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "a"} /></div>
+      <div className="flex justify-center"><Tag color="stone">{item.shareB}%</Tag></div>
+      <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "b"} /></div>
+      {action ?? <div />}
+    </div>
+  );
+}
+
+// "<name>'s Share €x" boxes, with an optional actions column on the right.
+function SharesFooter({ names, shareA, shareB, tone = "stone", children }) {
+  const amber = tone === "amber";
+  return (
+    <div className={`grid ${children ? "grid-cols-[1fr_1fr_auto]" : "grid-cols-2"} divide-x ${amber ? "divide-amber-100 border-t border-amber-100" : "divide-stone-100"}`}>
+      {[["a", shareA], ["b", shareB]].map(([key, amount]) => (
+        <div key={key} className={`px-4 py-2.5 ${amber ? "bg-amber-50/60" : "bg-stone-50/60"}`}>
+          <p className="text-xs text-stone-400 font-mono mb-0.5">{names[key]}&apos;s Share</p>
+          <p className="font-mono font-semibold text-stone-700 text-sm">€{amount.toFixed(2)}</p>
+        </div>
+      ))}
+      {children && (
+        <div className={`flex flex-col items-center justify-center gap-2 px-4 py-2.5 ${amber ? "bg-amber-50/30" : "bg-stone-50/30"}`}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Read-only item card. `nested` is the lighter style used inside an expanded trip.
+function ReadOnlyItem({ item, names, nested = false, dimmed = false, actions = null }) {
+  const { a, b } = itemShares(item.cost, item.shareA, item.shareB);
+  const frame = nested
+    ? `border-stone-100 transition-opacity ${dimmed ? "opacity-40" : ""}`
+    : "border-stone-200 shadow-sm";
+  return (
+    <div className={`bg-white border rounded-xl overflow-hidden ${frame}`}>
+      <div className="px-4 pt-3 pb-1"><ItemColHeaders names={names} faint={nested} /></div>
+      <ItemDisplayRow item={item} className="px-4 pb-3 border-b border-stone-100" />
+      <SharesFooter names={names} shareA={a} shareB={b}>{actions}</SharesFooter>
+    </div>
+  );
+}
+
 // ─── ItemForm (Add Item tab) ───────────────────────────────────────────────────
 
 const EMPTY_FORM = { name: "", cost: "", shareA: "", shareB: "", paidBy: null };
 
 function ItemForm({ names, onSave }) {
   const [form, setForm] = useState(EMPTY_FORM);
-  const shareANum = parseFloat(form.shareA);
-  const shareBNum = parseFloat(form.shareB);
-  const total = (isNaN(shareANum) ? 0 : shareANum) + (isNaN(shareBNum) ? 0 : shareBNum);
+  const total = shareTotal(form.shareA, form.shareB);
   const sharesValid = totalIs100(total);
   const hasShareInput = form.shareA !== "" || form.shareB !== "";
-  const canSubmit = form.name.trim() && parseFloat(form.cost) > 0 && sharesValid && form.paidBy !== null;
+  const validated = validateItem(form, form.paidBy);
+  const canSubmit = validated !== null;
 
   function onSubmit() {
-    if (!canSubmit) return;
-    onSave({ ...newRecordMeta(), name: form.name.trim(), cost: parseFloat(form.cost), shareA: parseFloat(form.shareA), shareB: parseFloat(form.shareB), paidBy: form.paidBy });
+    if (!validated) return;
+    onSave({ ...newRecordMeta(), ...validated });
     setForm(EMPTY_FORM);
   }
 
@@ -334,21 +424,13 @@ function ItemForm({ names, onSave }) {
           onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className={inputBase} />
         <input type="number" placeholder="0.00" min="0" step="0.01" value={form.cost}
           onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} className={`${inputBase} font-mono text-right`} />
-        <div className="flex items-center gap-1 justify-center">
-          <input type="number" placeholder="0" min="0" max="100" step="1" value={form.shareA}
-            onChange={e => handleShareChange(e.target.value, v => setForm(f => ({ ...f, shareA: v })), v => setForm(f => ({ ...f, shareB: v })))}
-            className={shareInputCls} />
-          <span className="text-stone-400 text-sm">%</span>
-        </div>
+        <ShareCell value={form.shareA}
+          onChange={v => handleShareChange(v, s => setForm(f => ({ ...f, shareA: s })), s => setForm(f => ({ ...f, shareB: s })))} />
         <div className="flex justify-center">
           <PaidToggle checked={form.paidBy === "a"} onToggle={() => setForm(f => ({ ...f, paidBy: f.paidBy === "a" ? null : "a" }))} />
         </div>
-        <div className="flex items-center gap-1 justify-center">
-          <input type="number" placeholder="0" min="0" max="100" step="1" value={form.shareB}
-            onChange={e => handleShareChange(e.target.value, v => setForm(f => ({ ...f, shareB: v })), v => setForm(f => ({ ...f, shareA: v })))}
-            className={shareInputCls} />
-          <span className="text-stone-400 text-sm">%</span>
-        </div>
+        <ShareCell value={form.shareB}
+          onChange={v => handleShareChange(v, s => setForm(f => ({ ...f, shareB: s })), s => setForm(f => ({ ...f, shareA: s })))} />
         <div className="flex justify-center">
           <PaidToggle checked={form.paidBy === "b"} onToggle={() => setForm(f => ({ ...f, paidBy: f.paidBy === "b" ? null : "b" }))} />
         </div>
@@ -380,31 +462,20 @@ function hasGhostInput(form) {
   return form.name !== "" || form.cost !== "" || form.shareA !== "" || form.shareB !== "";
 }
 
-// Returns the item (without id) if the form is complete and valid, otherwise null.
-function parseGhostForm(form, paidBy) {
-  const cost = parseFloat(form.cost);
-  const shareA = parseFloat(form.shareA);
-  const shareB = parseFloat(form.shareB);
-  if (!form.name.trim() || !(cost > 0) || !totalIs100(shareA + shareB) || paidBy === null) return null;
-  return { name: form.name.trim(), cost, shareA, shareB, paidBy };
-}
-
 function TripItemGhostRow({ paidBy, form, setForm, onCommit }) {
   const nameRef = useRef(null);
 
-  const shareANum = parseFloat(form.shareA);
-  const shareBNum = parseFloat(form.shareB);
-  const total = (isNaN(shareANum) ? 0 : shareANum) + (isNaN(shareBNum) ? 0 : shareBNum);
+  const total = shareTotal(form.shareA, form.shareB);
   const sharesValid = totalIs100(total);
   const hasAnyInput = hasGhostInput(form);
 
   function commit() {
-    const parsed = parseGhostForm(form, paidBy);
-    if (!parsed) {
+    const validated = validateItem(form, paidBy);
+    if (!validated) {
       nameRef.current?.focus();
       return;
     }
-    onCommit({ ...newRecordMeta(), ...parsed });
+    onCommit({ ...newRecordMeta(), ...validated });
     setForm(EMPTY_GHOST_FORM);
     nameRef.current?.focus();
   }
@@ -420,19 +491,11 @@ function TripItemGhostRow({ paidBy, form, setForm, onCommit }) {
         <input type="number" placeholder="0.00" min="0" step="0.01" value={form.cost}
           onChange={e => setForm(f => ({ ...f, cost: e.target.value }))}
           className="bg-transparent border-none outline-none text-sm font-mono text-stone-800 text-right w-full placeholder-stone-300" />
-        <div className="flex items-center gap-1 justify-center">
-          <input type="number" placeholder="0" min="0" max="100" step="1" value={form.shareA}
-            onChange={e => handleShareChange(e.target.value, v => setForm(f => ({ ...f, shareA: v })), v => setForm(f => ({ ...f, shareB: v })))}
-            className="w-12 bg-transparent border-none outline-none text-sm font-mono text-right placeholder-stone-300" />
-          <span className="text-stone-400 text-xs">%</span>
-        </div>
+        <ShareCell variant="ghost" value={form.shareA}
+          onChange={v => handleShareChange(v, s => setForm(f => ({ ...f, shareA: s })), s => setForm(f => ({ ...f, shareB: s })))} />
         <div className="flex justify-center"><PaidIndicator checked={paidBy === "a"} /></div>
-        <div className="flex items-center gap-1 justify-center">
-          <input type="number" placeholder="0" min="0" max="100" step="1" value={form.shareB}
-            onChange={e => handleShareChange(e.target.value, v => setForm(f => ({ ...f, shareB: v })), v => setForm(f => ({ ...f, shareA: v })))}
-            className="w-12 bg-transparent border-none outline-none text-sm font-mono text-right placeholder-stone-300" />
-          <span className="text-stone-400 text-xs">%</span>
-        </div>
+        <ShareCell variant="ghost" value={form.shareB}
+          onChange={v => handleShareChange(v, s => setForm(f => ({ ...f, shareB: s })), s => setForm(f => ({ ...f, shareA: s })))} />
         <div className="flex justify-center"><PaidIndicator checked={paidBy === "b"} /></div>
         <div />
       </div>
@@ -458,7 +521,7 @@ function TripForm({ names, onSave, onDraftChange }) {
   const [ghostForm, setGhostForm] = useState(EMPTY_GHOST_FORM);
 
   // A complete ghost-row item is included on Save; a half-filled one blocks Save.
-  const pendingItem = parseGhostForm(ghostForm, draft.paidBy);
+  const pendingItem = validateItem(ghostForm, draft.paidBy);
   const hasPendingInput = hasGhostInput(ghostForm);
   const hasBlockingPending = hasPendingInput && !pendingItem;
   const itemCount = draft.items.length + (pendingItem ? 1 : 0);
@@ -530,16 +593,12 @@ function TripForm({ names, onSave, onDraftChange }) {
         {draft.items.length > 0 && (
           <div className="flex flex-col gap-1.5 mb-2">
             {draft.items.map(item => (
-              <div key={item.id} className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-3 py-2 bg-white rounded-xl border border-stone-100`}>
-                <span className="text-sm text-stone-800 font-medium truncate" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>{item.name}</span>
-                <span className="font-mono text-sm text-stone-700 text-right">€{item.cost.toFixed(2)}</span>
-                <div className="flex justify-center"><Tag color="stone">{item.shareA}%</Tag></div>
-                <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "a"} /></div>
-                <div className="flex justify-center"><Tag color="stone">{item.shareB}%</Tag></div>
-                <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "b"} /></div>
-                <button onClick={() => removeItem(item.id)}
-                  className="text-xs font-mono text-stone-300 hover:text-rose-400 transition-colors text-center">✕</button>
-              </div>
+              <ItemDisplayRow key={item.id} item={item} compact
+                className="px-3 py-2 bg-white rounded-xl border border-stone-100"
+                action={
+                  <button onClick={() => removeItem(item.id)}
+                    className="text-xs font-mono text-stone-300 hover:text-rose-400 transition-colors text-center">✕</button>
+                } />
             ))}
           </div>
         )}
@@ -626,42 +685,31 @@ function ItemRow({ item, names, onSave, onDelete }) {
     setEditing(true);
   }
   function cancelEdit() { setEditing(false); setForm(null); }
+
+  const validated = form ? validateItem(form, form.paidBy) : null;
   function saveEdit() {
-    if (!form) return;
-    const shareA = parseFloat(form.shareA), shareB = parseFloat(form.shareB);
-    if (!form.name.trim() || !(parseFloat(form.cost) > 0) || !totalIs100(shareA + shareB) || !form.paidBy) return;
-    onSave({ ...item, name: form.name.trim(), cost: parseFloat(form.cost), shareA, shareB, paidBy: form.paidBy });
+    if (!validated) return;
+    onSave({ ...item, ...validated });
     setEditing(false); setForm(null);
   }
 
-  const { a: costA, b: costB } = itemShares(item.cost, item.shareA, item.shareB);
-
   if (editing && form) {
-    const sA = parseFloat(form.shareA), sB = parseFloat(form.shareB);
-    const total = (isNaN(sA) ? 0 : sA) + (isNaN(sB) ? 0 : sB);
+    const total = shareTotal(form.shareA, form.shareB);
     const sharesValid = totalIs100(total);
-    const canSave = form.name.trim() && parseFloat(form.cost) > 0 && sharesValid && form.paidBy !== null;
+    const shares = itemShares(parseFloat(form.cost), parseFloat(form.shareA), parseFloat(form.shareB));
     return (
       <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden">
-        <div className={`grid ${ITEM_COLS_DEL} gap-3 items-end px-4 pt-3 pb-1`}><ItemColHeaders names={names} /></div>
+        <div className="px-4 pt-3 pb-1"><ItemColHeaders names={names} /></div>
         <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-4 pb-3`}>
           <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className={inputAmber} />
           <input type="number" min="0" step="0.01" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} className={`${inputAmber} font-mono text-right`} />
-          <div className="flex items-center gap-1 justify-center">
-            <input type="number" min="0" max="100" step="1" value={form.shareA}
-              onChange={e => handleShareChange(e.target.value, v => setForm(f => ({ ...f, shareA: v })), v => setForm(f => ({ ...f, shareB: v })))}
-              className={shareInputAmberCls} />
-            <span className="text-stone-400 text-sm">%</span>
-          </div>
+          <ShareCell variant="amber" value={form.shareA}
+            onChange={v => handleShareChange(v, s => setForm(f => ({ ...f, shareA: s })), s => setForm(f => ({ ...f, shareB: s })))} />
           <div className="flex justify-center">
             <PaidToggle checked={form.paidBy === "a"} onToggle={() => setForm(f => ({ ...f, paidBy: f.paidBy === "a" ? null : "a" }))} />
           </div>
-          <div className="flex items-center gap-1 justify-center">
-            <input type="number" min="0" max="100" step="1" value={form.shareB}
-              onChange={e => handleShareChange(e.target.value, v => setForm(f => ({ ...f, shareB: v })), v => setForm(f => ({ ...f, shareA: v })))}
-              className={shareInputAmberCls} />
-            <span className="text-stone-400 text-sm">%</span>
-          </div>
+          <ShareCell variant="amber" value={form.shareB}
+            onChange={v => handleShareChange(v, s => setForm(f => ({ ...f, shareB: s })), s => setForm(f => ({ ...f, shareA: s })))} />
           <div className="flex justify-center">
             <PaidToggle checked={form.paidBy === "b"} onToggle={() => setForm(f => ({ ...f, paidBy: f.paidBy === "b" ? null : "b" }))} />
           </div>
@@ -670,99 +718,40 @@ function ItemRow({ item, names, onSave, onDelete }) {
         {!sharesValid && (form.shareA !== "" || form.shareB !== "") && (
           <p className="text-xs text-rose-500 font-mono px-4 pb-2">⚠ Shares must add up to 100% (currently {total}%)</p>
         )}
-        <div className="grid grid-cols-[1fr_1fr_auto] divide-x divide-amber-100 border-t border-amber-100">
-          <div className="px-4 py-2.5 bg-amber-50/60">
-            <p className="text-xs text-stone-400 font-mono mb-0.5">{names.a}&apos;s Share</p>
-            <p className="font-mono font-semibold text-stone-700 text-sm">€{itemShares(parseFloat(form.cost), parseFloat(form.shareA), parseFloat(form.shareB)).a.toFixed(2)}</p>
-          </div>
-          <div className="px-4 py-2.5 bg-amber-50/60">
-            <p className="text-xs text-stone-400 font-mono mb-0.5">{names.b}&apos;s Share</p>
-            <p className="font-mono font-semibold text-stone-700 text-sm">€{itemShares(parseFloat(form.cost), parseFloat(form.shareA), parseFloat(form.shareB)).b.toFixed(2)}</p>
-          </div>
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-2.5 bg-amber-50/30">
-            <button onClick={saveEdit} disabled={!canSave}
-              className={`text-xs font-mono px-2 py-1 rounded w-full text-center transition-colors ${canSave ? "text-amber-700 hover:bg-amber-100 cursor-pointer" : "text-stone-300 cursor-not-allowed"}`}>
-              ✓ Save
-            </button>
-            <button onClick={cancelEdit}
-              className="text-xs font-mono text-stone-400 hover:text-stone-700 transition-colors px-2 py-1 rounded hover:bg-stone-100 w-full text-center">
-              ✕ Cancel
-            </button>
-          </div>
-        </div>
+        <SharesFooter names={names} shareA={shares.a} shareB={shares.b} tone="amber">
+          <button onClick={saveEdit} disabled={!validated}
+            className={`text-xs font-mono px-2 py-1 rounded w-full text-center transition-colors ${validated ? "text-amber-700 hover:bg-amber-100 cursor-pointer" : "text-stone-300 cursor-not-allowed"}`}>
+            ✓ Save
+          </button>
+          <button onClick={cancelEdit}
+            className="text-xs font-mono text-stone-400 hover:text-stone-700 transition-colors px-2 py-1 rounded hover:bg-stone-100 w-full text-center">
+            ✕ Cancel
+          </button>
+        </SharesFooter>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
-      <div className={`grid ${ITEM_COLS_DEL} gap-3 items-end px-4 pt-3 pb-1`}><ItemColHeaders names={names} /></div>
-      <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-4 pb-3 border-b border-stone-100`}>
-        <span className="text-stone-800 font-medium truncate" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>{item.name}</span>
-        <span className="font-mono font-semibold text-stone-700 text-right">€{item.cost.toFixed(2)}</span>
-        <div className="flex justify-center"><Tag color="stone">{item.shareA}%</Tag></div>
-        <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "a"} /></div>
-        <div className="flex justify-center"><Tag color="stone">{item.shareB}%</Tag></div>
-        <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "b"} /></div>
-        <div />
-      </div>
-      <div className="grid grid-cols-[1fr_1fr_auto] divide-x divide-stone-100">
-        {[{ key: "a", c: costA }, { key: "b", c: costB }].map(({ key, c }) => (
-          <div key={key} className="px-4 py-2.5 bg-stone-50/60">
-            <p className="text-xs text-stone-400 font-mono mb-0.5">{names[key]}&apos;s Share</p>
-            <p className="font-mono font-semibold text-stone-700 text-sm">€{c.toFixed(2)}</p>
-          </div>
-        ))}
-        <div className="flex flex-col items-center justify-center gap-2 px-4 py-2.5 bg-stone-50/30">
-          <button onClick={startEdit}
-            className="text-xs font-mono text-stone-400 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50 w-full text-center">
-            ✎ Edit
-          </button>
-          <button onClick={() => onDelete(item.id)}
-            className="text-xs font-mono text-stone-400 hover:text-rose-500 transition-colors px-2 py-1 rounded hover:bg-rose-50 w-full text-center">
-            ✕ Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── TripItemRow (read-only item inside an expanded trip) ─────────────────────
-
-function TripItemRow({ item, names, dimmed = false }) {
-  const { a: costA, b: costB } = itemShares(item.cost, item.shareA, item.shareB);
-  return (
-    <div className={`bg-white border border-stone-100 rounded-xl overflow-hidden transition-opacity ${dimmed ? "opacity-40" : ""}`}>
-      <div className={`grid ${ITEM_COLS_DEL} gap-3 items-end px-4 pt-3 pb-1`}>
-        <ItemColHeaders names={names} faint />
-      </div>
-      <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-4 pb-3 border-b border-stone-100`}>
-        <span className="text-stone-800 font-medium truncate" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>{item.name}</span>
-        <span className="font-mono font-semibold text-stone-700 text-right">€{item.cost.toFixed(2)}</span>
-        <div className="flex justify-center"><Tag color="stone">{item.shareA}%</Tag></div>
-        <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "a"} /></div>
-        <div className="flex justify-center"><Tag color="stone">{item.shareB}%</Tag></div>
-        <div className="flex justify-center"><PaidIndicator checked={item.paidBy === "b"} /></div>
-        <div />
-      </div>
-      <div className="grid grid-cols-2 divide-x divide-stone-100">
-        {[{ key: "a", c: costA }, { key: "b", c: costB }].map(({ key, c }) => (
-          <div key={key} className="px-4 py-2.5 bg-stone-50/40">
-            <p className="text-xs text-stone-400 font-mono mb-0.5">{names[key]}&apos;s Share</p>
-            <p className="font-mono font-semibold text-stone-700 text-sm">€{c.toFixed(2)}</p>
-          </div>
-        ))}
-      </div>
-    </div>
+    <ReadOnlyItem item={item} names={names} actions={
+      <>
+        <button onClick={startEdit}
+          className="text-xs font-mono text-stone-400 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50 w-full text-center">
+          ✎ Edit
+        </button>
+        <button onClick={() => onDelete(item.id)}
+          className="text-xs font-mono text-stone-400 hover:text-rose-500 transition-colors px-2 py-1 rounded hover:bg-rose-50 w-full text-center">
+          ✕ Delete
+        </button>
+      </>
+    } />
   );
 }
 
 // ─── TripItemEditRow (editable item row inside Edit Trip mode) ────────────────
 
 function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
-  const sA = parseFloat(draft.shareA), sB = parseFloat(draft.shareB);
-  const total = (isNaN(sA) ? 0 : sA) + (isNaN(sB) ? 0 : sB);
+  const total = shareTotal(draft.shareA, draft.shareB);
   const sharesValid = totalIs100(total);
   const { a: costA, b: costB } = itemShares(parseFloat(draft.cost), parseFloat(draft.shareA), parseFloat(draft.shareB));
 
@@ -775,9 +764,7 @@ function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
-      <div className={`grid ${ITEM_COLS_DEL} gap-3 items-end px-4 pt-3 pb-1`}>
-        <ItemColHeaders names={names} />
-      </div>
+      <div className="px-4 pt-3 pb-1"><ItemColHeaders names={names} /></div>
       <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-4 pb-3`}>
         <input type="text" value={draft.name}
           onChange={e => onChange({ ...draft, name: e.target.value })}
@@ -785,20 +772,10 @@ function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
         <input type="number" min="0" step="0.01" value={draft.cost}
           onChange={e => onChange({ ...draft, cost: e.target.value })}
           className={`${inputAmber} font-mono text-right`} />
-        <div className="flex items-center gap-1 justify-center">
-          <input type="number" min="0" max="100" step="1" value={draft.shareA}
-            onChange={e => changeShares(e.target.value, "shareA", "shareB")}
-            className={shareInputAmberCls} />
-          <span className="text-stone-400 text-sm">%</span>
-        </div>
+        <ShareCell variant="amber" value={draft.shareA} onChange={v => changeShares(v, "shareA", "shareB")} />
         {/* paidBy locked — show indicator, not toggle */}
         <div className="flex justify-center"><PaidIndicator checked={paidBy === "a"} /></div>
-        <div className="flex items-center gap-1 justify-center">
-          <input type="number" min="0" max="100" step="1" value={draft.shareB}
-            onChange={e => changeShares(e.target.value, "shareB", "shareA")}
-            className={shareInputAmberCls} />
-          <span className="text-stone-400 text-sm">%</span>
-        </div>
+        <ShareCell variant="amber" value={draft.shareB} onChange={v => changeShares(v, "shareB", "shareA")} />
         <div className="flex justify-center"><PaidIndicator checked={paidBy === "b"} /></div>
         <button onClick={() => onDelete(item.id)}
           className="text-xs font-mono text-stone-300 hover:text-rose-400 transition-colors text-center">✕</button>
@@ -806,16 +783,7 @@ function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
       {!sharesValid && (draft.shareA !== "" || draft.shareB !== "") && (
         <p className="text-xs text-rose-500 font-mono px-4 pb-2">⚠ Shares must add up to 100% (currently {total}%)</p>
       )}
-      <div className="grid grid-cols-2 divide-x divide-amber-100 border-t border-amber-100">
-        <div className="px-4 py-2 bg-amber-50/60">
-          <p className="text-xs text-stone-400 font-mono mb-0.5">{names.a}&apos;s Share</p>
-          <p className="font-mono font-semibold text-stone-700 text-sm">€{costA.toFixed(2)}</p>
-        </div>
-        <div className="px-4 py-2 bg-amber-50/60">
-          <p className="text-xs text-stone-400 font-mono mb-0.5">{names.b}&apos;s Share</p>
-          <p className="font-mono font-semibold text-stone-700 text-sm">€{costB.toFixed(2)}</p>
-        </div>
-      </div>
+      <SharesFooter names={names} shareA={costA} shareB={costB} tone="amber" />
     </div>
   );
 }
@@ -837,8 +805,9 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
 
   const { shareA, shareB } = computeTripShares(tripItems);
   // A complete ghost-row item is added on Save; a half-filled one blocks Save.
-  const pendingItem = parseGhostForm(ghostForm, tripDraft?.paidBy ?? null);
+  const pendingItem = validateItem(ghostForm, tripDraft?.paidBy ?? null);
   const hasBlockingPending = hasGhostInput(ghostForm) && !pendingItem;
+  const allItemDraftsValid = Object.values(itemDrafts).every(d => validateItem(d, tripDraft?.paidBy) !== null);
   const editItems = [
     ...tripItems.filter(i => !deletedIds.includes(i.id)),
     ...newItemIds.map(id => ({ id })),
@@ -864,14 +833,9 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
 
   function saveEdit() {
     if (!tripDraft?.name.trim() || !tripDraft.date || !tripDraft.paidBy || hasBlockingPending) return;
-    // Validate all item drafts
-    for (const id in itemDrafts) {
-      const d = itemDrafts[id];
-      const sA = parseFloat(d.shareA), sB = parseFloat(d.shareB);
-      if (!d.name.trim() || !(parseFloat(d.cost) > 0) || !totalIs100(sA + sB)) return;
-    }
+    if (!allItemDraftsValid) return;
     onUpdateTrip({ ...trip, name: tripDraft.name.trim(), date: tripDraft.date, paidBy: tripDraft.paidBy });
-    const toItem = (base, d) => ({ ...base, name: d.name.trim(), cost: parseFloat(d.cost), shareA: parseFloat(d.shareA), shareB: parseFloat(d.shareB), paidBy: tripDraft.paidBy });
+    const toItem = (base, d) => ({ ...base, ...validateItem(d, tripDraft.paidBy) });
     for (const item of tripItems) {
       if (deletedIds.includes(item.id)) onDeleteItem(item.id);
       else if (itemDrafts[item.id]) onUpdateItem(toItem(item, itemDrafts[item.id]));
@@ -905,11 +869,6 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
     setTripDraft(d => ({ ...d, paidBy: d.paidBy === person ? null : person }));
   }
 
-  // Validation for save button
-  const allItemDraftsValid = Object.values(itemDrafts).every(d => {
-    const sA = parseFloat(d.shareA), sB = parseFloat(d.shareB);
-    return d.name.trim() && parseFloat(d.cost) > 0 && totalIs100(sA + sB);
-  });
   const canSaveEdit = tripDraft?.name.trim() && tripDraft?.date && tripDraft?.paidBy && allItemDraftsValid && !hasBlockingPending;
 
   // ── Row 1: trip details / editable ──
@@ -918,7 +877,7 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
       <input type="text" value={tripDraft.name}
         onChange={e => setTripDraft(d => ({ ...d, name: e.target.value }))}
         className={`${inputAmber} font-medium`}
-        style={{ fontFamily: "'DM Serif Display', Georgia, serif" }} />
+        style={SERIF} />
       <input type="date" value={tripDraft.date}
         onChange={e => setTripDraft(d => ({ ...d, date: e.target.value }))}
         className="bg-white border border-amber-300 rounded-md px-2 py-2 text-sm font-mono text-stone-600 focus:outline-none focus:ring-2 focus:ring-amber-400 transition" />
@@ -934,7 +893,7 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
     </div>
   ) : (
     <div className={`grid ${TRIP_COLS_ACC} gap-3 items-center px-4 py-3 border-b border-stone-100`}>
-      <span className="text-stone-800 font-medium" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>{trip.name}</span>
+      <span className="text-stone-800 font-medium" style={SERIF}>{trip.name}</span>
       <span className="font-mono text-sm text-stone-500">{formatDate(trip.date)}</span>
       <div className="flex justify-center"><PaidIndicator checked={trip.paidBy === "a"} /></div>
       <div className="flex justify-center"><PaidIndicator checked={trip.paidBy === "b"} /></div>
@@ -946,41 +905,31 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
 
   // ── Row 2: shares + actions ──
   const row2 = (
-    <div className="grid grid-cols-[1fr_1fr_auto] divide-x divide-stone-100">
-      <div className="px-4 py-2.5 bg-stone-50/60">
-        <p className="text-xs text-stone-400 font-mono mb-0.5">{names.a}&apos;s Share</p>
-        <p className="font-mono font-semibold text-stone-700 text-sm">€{shareA.toFixed(2)}</p>
-      </div>
-      <div className="px-4 py-2.5 bg-stone-50/60">
-        <p className="text-xs text-stone-400 font-mono mb-0.5">{names.b}&apos;s Share</p>
-        <p className="font-mono font-semibold text-stone-700 text-sm">€{shareB.toFixed(2)}</p>
-      </div>
-      <div className="flex flex-col items-center justify-center gap-2 px-4 py-2.5 bg-stone-50/30">
-        {isEditing ? (
-          <>
-            <button onClick={saveEdit} disabled={!canSaveEdit}
-              className={`text-xs font-mono px-2 py-1 rounded w-full text-center transition-colors ${canSaveEdit ? "text-amber-700 hover:bg-amber-100 cursor-pointer" : "text-stone-300 cursor-not-allowed"}`}>
-              ✓ Save
-            </button>
-            <button onClick={cancelEdit}
-              className="text-xs font-mono text-stone-400 hover:text-stone-700 transition-colors px-2 py-1 rounded hover:bg-stone-100 w-full text-center">
-              ✕ Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={startEdit}
-              className="text-xs font-mono text-stone-400 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50 w-full text-center">
-              ✎ Edit Trip
-            </button>
-            <button onClick={() => setShowDeleteConfirm(true)}
-              className="text-xs font-mono text-stone-400 hover:text-rose-500 transition-colors px-2 py-1 rounded hover:bg-rose-50 w-full text-center">
-              ✕ Delete Trip
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+    <SharesFooter names={names} shareA={shareA} shareB={shareB}>
+      {isEditing ? (
+        <>
+          <button onClick={saveEdit} disabled={!canSaveEdit}
+            className={`text-xs font-mono px-2 py-1 rounded w-full text-center transition-colors ${canSaveEdit ? "text-amber-700 hover:bg-amber-100 cursor-pointer" : "text-stone-300 cursor-not-allowed"}`}>
+            ✓ Save
+          </button>
+          <button onClick={cancelEdit}
+            className="text-xs font-mono text-stone-400 hover:text-stone-700 transition-colors px-2 py-1 rounded hover:bg-stone-100 w-full text-center">
+            ✕ Cancel
+          </button>
+        </>
+      ) : (
+        <>
+          <button onClick={startEdit}
+            className="text-xs font-mono text-stone-400 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50 w-full text-center">
+            ✎ Edit Trip
+          </button>
+          <button onClick={() => setShowDeleteConfirm(true)}
+            className="text-xs font-mono text-stone-400 hover:text-rose-500 transition-colors px-2 py-1 rounded hover:bg-rose-50 w-full text-center">
+            ✕ Delete Trip
+          </button>
+        </>
+      )}
+    </SharesFooter>
   );
 
   return (
@@ -995,7 +944,7 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
       )}
 
       {/* Column headers */}
-      <div className={`grid ${TRIP_COLS_ACC} gap-3 items-end px-4 pt-3 pb-1`}>
+      <div className="px-4 pt-3 pb-1">
         <TripMetaColHeaders names={names} withAccordion />
       </div>
 
@@ -1019,7 +968,7 @@ function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDele
                     onDelete={deleteItemInEdit}
                   />
                 ) : (
-                  <TripItemRow key={item.id} item={item} names={names}
+                  <ReadOnlyItem key={item.id} item={item} names={names} nested
                     dimmed={matchedItemIds != null && !matchedItemIds.has(item.id)} />
                 )
               )}
@@ -1104,7 +1053,7 @@ function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUpdateTri
       </div>
 
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg text-stone-800" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>Items</h2>
+        <h2 className="text-lg text-stone-800" style={SERIF}>Items</h2>
         {hasContent && (
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {q ? (
@@ -1188,7 +1137,7 @@ export default function App() {
       <div className="max-w-5xl mx-auto px-4 py-10">
         <header className="mb-8">
           <div className="flex items-end justify-between">
-            <h1 className="text-4xl text-stone-900 leading-none" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>
+            <h1 className="text-4xl text-stone-900 leading-none" style={SERIF}>
               Cost Splitter
             </h1>
             <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-full px-4 py-2 shadow-sm">
