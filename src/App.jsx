@@ -6,16 +6,42 @@ const LS_ITEMS = "splittab_items";
 const LS_NAMES = "splittab_names";
 const LS_TRIPS = "splittab_trips";
 
-function loadItems() {
-  try { return JSON.parse(localStorage.getItem(LS_ITEMS)) ?? []; } catch { return []; }
+const DEFAULT_NAMES = { a: "Alex", b: "Blake" };
+
+const isObject = v => v !== null && typeof v === "object";
+const isPaidBy = v => v === "a" || v === "b";
+// Ids were numeric (Date.now()) before; both forms are accepted and migrated on load.
+const isStoredId = v => typeof v === "string" || Number.isFinite(v);
+const isStoredItem = i =>
+  isObject(i) && typeof i.name === "string" && isStoredId(i.id) && [i.cost, i.shareA, i.shareB].every(Number.isFinite) && isPaidBy(i.paidBy);
+const isStoredTrip = t =>
+  isObject(t) && typeof t.name === "string" && typeof t.date === "string" && isStoredId(t.id) && isPaidBy(t.paidBy);
+const isStoredNames = n => isObject(n) && typeof n.a === "string" && typeof n.b === "string";
+
+// Returns the parsed value if it exists and passes isValid, otherwise the fallback.
+function loadStored(key, fallback, isValid) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return value != null && isValid(value) ? value : fallback;
+  } catch { return fallback; }
 }
-function loadNames() {
-  try { return JSON.parse(localStorage.getItem(LS_NAMES)) ?? { a: "Alex", b: "Blake" }; }
-  catch { return { a: "Alex", b: "Blake" }; }
+
+// Storage can be full or blocked (private mode); the app keeps working for the session.
+function saveStored(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch (err) { console.warn(`Could not save ${key}:`, err); }
 }
-function loadTrips() {
-  try { return JSON.parse(localStorage.getItem(LS_TRIPS)) ?? []; } catch { return []; }
+
+// Old numeric ids become strings; the old id doubled as the creation time, so keep it as createdAt.
+function migrateRecord(r) {
+  const migrated = { ...r, id: String(r.id), createdAt: r.createdAt ?? Number(r.id) };
+  if (r.groupId != null) migrated.groupId = String(r.groupId);
+  return migrated;
 }
+
+const loadItems = () => loadStored(LS_ITEMS, [], v => Array.isArray(v) && v.every(isStoredItem)).map(migrateRecord);
+const loadTrips = () => loadStored(LS_TRIPS, [], v => Array.isArray(v) && v.every(isStoredTrip)).map(migrateRecord);
+const loadNames = () => loadStored(LS_NAMES, DEFAULT_NAMES, isStoredNames);
 
 // ─── Grid template constants ───────────────────────────────────────────────────
 // Shared across headers, display rows, and input rows for perfect alignment.
@@ -31,11 +57,31 @@ const TRIP_COLS_ACC = "grid-cols-[minmax(0,1fr)_160px_90px_90px_32px]";
 
 // ─── Ledger logic ──────────────────────────────────────────────────────────────
 
+// Unique id plus creation time (used for newest-first ordering).
+function newRecordMeta() {
+  const id = crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return { id, createdAt: Date.now() };
+}
+
+// Shares are valid when they total 100, within float noise from decimal inputs.
+function totalIs100(total) {
+  return Math.abs(total - 100) < 0.001;
+}
+
+// Each person's cost in euros, rounded to cents so the two shares always add up to the item cost.
+function itemShares(cost, shareA, shareB) {
+  const totalCents = Math.round((cost || 0) * 100);
+  const aCents = Math.round(totalCents * ((shareA || 0) / 100));
+  const bCents = totalIs100((shareA || 0) + (shareB || 0))
+    ? totalCents - aCents
+    : Math.round(totalCents * ((shareB || 0) / 100));
+  return { a: aCents / 100, b: bCents / 100 };
+}
+
 function computeBalances(items) {
   let netA = 0, netB = 0;
   for (const item of items) {
-    const shouldA = item.cost * (item.shareA / 100);
-    const shouldB = item.cost * (item.shareB / 100);
+    const { a: shouldA, b: shouldB } = itemShares(item.cost, item.shareA, item.shareB);
     netA += (item.paidBy === "a" ? item.cost : 0) - shouldA;
     netB += (item.paidBy === "b" ? item.cost : 0) - shouldB;
   }
@@ -50,12 +96,18 @@ function computeBalances(items) {
 
 function computeTripShares(tripItems) {
   return tripItems.reduce(
-    (acc, item) => ({
-      shareA: acc.shareA + item.cost * (item.shareA / 100),
-      shareB: acc.shareB + item.cost * (item.shareB / 100),
-    }),
+    (acc, item) => {
+      const { a, b } = itemShares(item.cost, item.shareA, item.shareB);
+      return { shareA: acc.shareA + a, shareB: acc.shareB + b };
+    },
     { shareA: 0, shareB: 0 }
   );
+}
+
+// List order: a trip sorts by its date (counted as the end of that local day), a solo item by createdAt.
+function tripSortTime(trip) {
+  const t = new Date(`${trip.date}T23:59:59.999`).getTime();
+  return Number.isNaN(t) ? trip.createdAt : t;
 }
 
 function formatDate(dateStr) {
@@ -67,8 +119,11 @@ function formatDate(dateStr) {
   } catch { return dateStr; }
 }
 
+// Local calendar date as YYYY-MM-DD (toISOString would give the UTC date).
 function todayISO() {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 // ─── ConfirmPopup ──────────────────────────────────────────────────────────────
@@ -261,13 +316,13 @@ function ItemForm({ names, onSave }) {
   const shareANum = parseFloat(form.shareA);
   const shareBNum = parseFloat(form.shareB);
   const total = (isNaN(shareANum) ? 0 : shareANum) + (isNaN(shareBNum) ? 0 : shareBNum);
-  const sharesValid = total === 100;
+  const sharesValid = totalIs100(total);
   const hasShareInput = form.shareA !== "" || form.shareB !== "";
   const canSubmit = form.name.trim() && parseFloat(form.cost) > 0 && sharesValid && form.paidBy !== null;
 
   function onSubmit() {
     if (!canSubmit) return;
-    onSave({ id: Date.now(), name: form.name.trim(), cost: parseFloat(form.cost), shareA: parseFloat(form.shareA), shareB: parseFloat(form.shareB), paidBy: form.paidBy });
+    onSave({ ...newRecordMeta(), name: form.name.trim(), cost: parseFloat(form.cost), shareA: parseFloat(form.shareA), shareB: parseFloat(form.shareB), paidBy: form.paidBy });
     setForm(EMPTY_FORM);
   }
 
@@ -316,31 +371,41 @@ function ItemForm({ names, onSave }) {
 // Active input row + ghost "Add another item" row below.
 // paidBy is locked to the trip level — shown as PaidIndicator, not a toggle.
 
-function TripItemGhostRow({ paidBy, onCommit }) {
-  const [form, setForm] = useState({ name: "", cost: "", shareA: "", shareB: "" });
+// Controlled: the parent owns `form` so it can include a pending item on Save,
+// warn about it as unsaved data, and keep it when the trip payer changes.
+
+const EMPTY_GHOST_FORM = { name: "", cost: "", shareA: "", shareB: "" };
+
+function hasGhostInput(form) {
+  return form.name !== "" || form.cost !== "" || form.shareA !== "" || form.shareB !== "";
+}
+
+// Returns the item (without id) if the form is complete and valid, otherwise null.
+function parseGhostForm(form, paidBy) {
+  const cost = parseFloat(form.cost);
+  const shareA = parseFloat(form.shareA);
+  const shareB = parseFloat(form.shareB);
+  if (!form.name.trim() || !(cost > 0) || !totalIs100(shareA + shareB) || paidBy === null) return null;
+  return { name: form.name.trim(), cost, shareA, shareB, paidBy };
+}
+
+function TripItemGhostRow({ paidBy, form, setForm, onCommit }) {
   const nameRef = useRef(null);
 
   const shareANum = parseFloat(form.shareA);
   const shareBNum = parseFloat(form.shareB);
   const total = (isNaN(shareANum) ? 0 : shareANum) + (isNaN(shareBNum) ? 0 : shareBNum);
-  const sharesValid = total === 100;
-  const hasAnyInput = form.name !== "" || form.cost !== "" || form.shareA !== "";
-  const canCommit = form.name.trim() && parseFloat(form.cost) > 0 && sharesValid && paidBy !== null;
+  const sharesValid = totalIs100(total);
+  const hasAnyInput = hasGhostInput(form);
 
   function commit() {
-    if (!canCommit) {
+    const parsed = parseGhostForm(form, paidBy);
+    if (!parsed) {
       nameRef.current?.focus();
       return;
     }
-    onCommit({
-      id: Date.now(),
-      name: form.name.trim(),
-      cost: parseFloat(form.cost),
-      shareA: parseFloat(form.shareA),
-      shareB: parseFloat(form.shareB),
-      paidBy,
-    });
-    setForm({ name: "", cost: "", shareA: "", shareB: "" });
+    onCommit({ ...newRecordMeta(), ...parsed });
+    setForm(EMPTY_GHOST_FORM);
     nameRef.current?.focus();
   }
 
@@ -385,25 +450,38 @@ function TripItemGhostRow({ paidBy, onCommit }) {
 
 // ─── TripForm (Add Trip tab) ───────────────────────────────────────────────────
 
-const EMPTY_TRIP_DRAFT = { name: "", date: todayISO(), paidBy: null, items: [] };
+const newTripDraft = () => ({ name: "", date: todayISO(), paidBy: null, items: [] });
 
 function TripForm({ names, onSave, onDraftChange }) {
-  const [draft, setDraft] = useState(EMPTY_TRIP_DRAFT);
+  const [draft, setDraft] = useState(newTripDraft);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [ghostForm, setGhostForm] = useState(EMPTY_GHOST_FORM);
 
-  const hasDraftData = draft.name.trim() !== "" || draft.items.length > 0;
-  const canSave = draft.name.trim() && draft.date && draft.paidBy !== null && draft.items.length > 0;
+  // A complete ghost-row item is included on Save; a half-filled one blocks Save.
+  const pendingItem = parseGhostForm(ghostForm, draft.paidBy);
+  const hasPendingInput = hasGhostInput(ghostForm);
+  const hasBlockingPending = hasPendingInput && !pendingItem;
+  const itemCount = draft.items.length + (pendingItem ? 1 : 0);
+
+  const hasDraftData = draft.name.trim() !== "" || draft.items.length > 0 || hasPendingInput;
+  const canSave = draft.name.trim() && draft.date && draft.paidBy !== null && itemCount > 0 && !hasBlockingPending;
 
   const onDraftChangeRef = useRef(onDraftChange);
   useEffect(() => { onDraftChangeRef.current = onDraftChange; });
   useEffect(() => { onDraftChangeRef.current(hasDraftData); }, [hasDraftData]);
 
-  function reset() { setDraft({ ...EMPTY_TRIP_DRAFT, date: todayISO() }); setShowResetConfirm(false); }
+  function reset() {
+    setDraft(newTripDraft());
+    setGhostForm(EMPTY_GHOST_FORM);
+    setShowResetConfirm(false);
+  }
 
   function handleSave() {
     if (!canSave) return;
-    onSave(draft);
-    setDraft({ ...EMPTY_TRIP_DRAFT, date: todayISO() });
+    const items = pendingItem ? [...draft.items, { ...newRecordMeta(), ...pendingItem }] : draft.items;
+    onSave({ ...draft, items });
+    setDraft(newTripDraft());
+    setGhostForm(EMPTY_GHOST_FORM);
   }
 
   function addItem(item) { setDraft(d => ({ ...d, items: [...d.items, item] })); }
@@ -467,7 +545,7 @@ function TripForm({ names, onSave, onDraftChange }) {
         )}
 
         {/* Ghost input row */}
-        <TripItemGhostRow key={draft.paidBy} paidBy={draft.paidBy} onCommit={addItem} />
+        <TripItemGhostRow paidBy={draft.paidBy} form={ghostForm} setForm={setGhostForm} onCommit={addItem} />
       </div>
 
       {/* Actions */}
@@ -479,7 +557,7 @@ function TripForm({ names, onSave, onDraftChange }) {
         <div className="flex items-center gap-3">
           {!canSave && (
             <span className="text-xs font-mono text-stone-400">
-              {!draft.name.trim() ? "Enter a trip name" : draft.items.length === 0 ? "Add at least one item" : draft.paidBy === null ? "Select who paid" : ""}
+              {!draft.name.trim() ? "Enter a trip name" : draft.paidBy === null ? "Select who paid" : hasBlockingPending ? "Finish or clear the pending item" : itemCount === 0 ? "Add at least one item" : ""}
             </span>
           )}
           <button onClick={handleSave} disabled={!canSave}
@@ -551,18 +629,17 @@ function ItemRow({ item, names, onSave, onDelete }) {
   function saveEdit() {
     if (!form) return;
     const shareA = parseFloat(form.shareA), shareB = parseFloat(form.shareB);
-    if (!form.name.trim() || !(parseFloat(form.cost) > 0) || shareA + shareB !== 100 || !form.paidBy) return;
+    if (!form.name.trim() || !(parseFloat(form.cost) > 0) || !totalIs100(shareA + shareB) || !form.paidBy) return;
     onSave({ ...item, name: form.name.trim(), cost: parseFloat(form.cost), shareA, shareB, paidBy: form.paidBy });
     setEditing(false); setForm(null);
   }
 
-  const costA = item.cost * (item.shareA / 100);
-  const costB = item.cost * (item.shareB / 100);
+  const { a: costA, b: costB } = itemShares(item.cost, item.shareA, item.shareB);
 
   if (editing && form) {
     const sA = parseFloat(form.shareA), sB = parseFloat(form.shareB);
     const total = (isNaN(sA) ? 0 : sA) + (isNaN(sB) ? 0 : sB);
-    const sharesValid = total === 100;
+    const sharesValid = totalIs100(total);
     const canSave = form.name.trim() && parseFloat(form.cost) > 0 && sharesValid && form.paidBy !== null;
     return (
       <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden">
@@ -596,11 +673,11 @@ function ItemRow({ item, names, onSave, onDelete }) {
         <div className="grid grid-cols-[1fr_1fr_auto] divide-x divide-amber-100 border-t border-amber-100">
           <div className="px-4 py-2.5 bg-amber-50/60">
             <p className="text-xs text-stone-400 font-mono mb-0.5">{names.a}&apos;s Share</p>
-            <p className="font-mono font-semibold text-stone-700 text-sm">€{(parseFloat(form.cost) * (parseFloat(form.shareA) / 100) || 0).toFixed(2)}</p>
+            <p className="font-mono font-semibold text-stone-700 text-sm">€{itemShares(parseFloat(form.cost), parseFloat(form.shareA), parseFloat(form.shareB)).a.toFixed(2)}</p>
           </div>
           <div className="px-4 py-2.5 bg-amber-50/60">
             <p className="text-xs text-stone-400 font-mono mb-0.5">{names.b}&apos;s Share</p>
-            <p className="font-mono font-semibold text-stone-700 text-sm">€{(parseFloat(form.cost) * (parseFloat(form.shareB) / 100) || 0).toFixed(2)}</p>
+            <p className="font-mono font-semibold text-stone-700 text-sm">€{itemShares(parseFloat(form.cost), parseFloat(form.shareA), parseFloat(form.shareB)).b.toFixed(2)}</p>
           </div>
           <div className="flex flex-col items-center justify-center gap-2 px-4 py-2.5 bg-amber-50/30">
             <button onClick={saveEdit} disabled={!canSave}
@@ -653,11 +730,10 @@ function ItemRow({ item, names, onSave, onDelete }) {
 
 // ─── TripItemRow (read-only item inside an expanded trip) ─────────────────────
 
-function TripItemRow({ item, names }) {
-  const costA = item.cost * (item.shareA / 100);
-  const costB = item.cost * (item.shareB / 100);
+function TripItemRow({ item, names, dimmed = false }) {
+  const { a: costA, b: costB } = itemShares(item.cost, item.shareA, item.shareB);
   return (
-    <div className="bg-white border border-stone-100 rounded-xl overflow-hidden">
+    <div className={`bg-white border border-stone-100 rounded-xl overflow-hidden transition-opacity ${dimmed ? "opacity-40" : ""}`}>
       <div className={`grid ${ITEM_COLS_DEL} gap-3 items-end px-4 pt-3 pb-1`}>
         <ItemColHeaders names={names} faint />
       </div>
@@ -687,9 +763,15 @@ function TripItemRow({ item, names }) {
 function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
   const sA = parseFloat(draft.shareA), sB = parseFloat(draft.shareB);
   const total = (isNaN(sA) ? 0 : sA) + (isNaN(sB) ? 0 : sB);
-  const sharesValid = total === 100;
-  const costA = (parseFloat(draft.cost) * (parseFloat(draft.shareA) / 100)) || 0;
-  const costB = (parseFloat(draft.cost) * (parseFloat(draft.shareB) / 100)) || 0;
+  const sharesValid = totalIs100(total);
+  const { a: costA, b: costB } = itemShares(parseFloat(draft.cost), parseFloat(draft.shareA), parseFloat(draft.shareB));
+
+  // Apply both share fields in one onChange so neither update clobbers the other.
+  function changeShares(value, self, other) {
+    const next = { ...draft };
+    handleShareChange(value, v => { next[self] = v; }, v => { next[other] = v; });
+    onChange(next);
+  }
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
@@ -705,10 +787,7 @@ function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
           className={`${inputAmber} font-mono text-right`} />
         <div className="flex items-center gap-1 justify-center">
           <input type="number" min="0" max="100" step="1" value={draft.shareA}
-            onChange={e => handleShareChange(e.target.value,
-              v => onChange({ ...draft, shareA: v, shareB: String(100 - parseFloat(v)) }),
-              v => onChange({ ...draft, shareB: v, shareA: String(100 - parseFloat(v)) })
-            )}
+            onChange={e => changeShares(e.target.value, "shareA", "shareB")}
             className={shareInputAmberCls} />
           <span className="text-stone-400 text-sm">%</span>
         </div>
@@ -716,10 +795,7 @@ function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
         <div className="flex justify-center"><PaidIndicator checked={paidBy === "a"} /></div>
         <div className="flex items-center gap-1 justify-center">
           <input type="number" min="0" max="100" step="1" value={draft.shareB}
-            onChange={e => handleShareChange(e.target.value,
-              v => onChange({ ...draft, shareB: v, shareA: String(100 - parseFloat(v)) }),
-              v => onChange({ ...draft, shareA: v, shareB: String(100 - parseFloat(v)) })
-            )}
+            onChange={e => changeShares(e.target.value, "shareB", "shareA")}
             className={shareInputAmberCls} />
           <span className="text-stone-400 text-sm">%</span>
         </div>
@@ -746,14 +822,32 @@ function TripItemEditRow({ item, names, paidBy, draft, onChange, onDelete }) {
 
 // ─── TripCard ──────────────────────────────────────────────────────────────────
 
-function TripCard({ trip, tripItems, names, onUpdateTrip, onDeleteTrip, onUpdateItem, onDeleteItem, onAddItem }) {
-  const [expanded, setExpanded] = useState(false);
+function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip, onDeleteTrip, onUpdateItem, onDeleteItem, onAddItem }) {
+  const [expandedByUser, setExpanded] = useState(false);
+  // While a search matches only some of this trip's items, stay open so the matches are visible.
+  const expanded = expandedByUser || matchedItemIds != null;
   const [isEditing, setIsEditing] = useState(false);
   const [tripDraft, setTripDraft] = useState(null);
   const [itemDrafts, setItemDrafts] = useState({});
+  // Edit-mode changes to the item set are held here and only applied on Save.
+  const [deletedIds, setDeletedIds] = useState([]);
+  const [newItemIds, setNewItemIds] = useState([]);
+  const [ghostForm, setGhostForm] = useState(EMPTY_GHOST_FORM);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { shareA, shareB } = computeTripShares(tripItems);
+  // A complete ghost-row item is added on Save; a half-filled one blocks Save.
+  const pendingItem = parseGhostForm(ghostForm, tripDraft?.paidBy ?? null);
+  const hasBlockingPending = hasGhostInput(ghostForm) && !pendingItem;
+  const editItems = [
+    ...tripItems.filter(i => !deletedIds.includes(i.id)),
+    ...newItemIds.map(id => ({ id })),
+  ];
+
+  function resetEditState() {
+    setIsEditing(false); setTripDraft(null); setItemDrafts({});
+    setDeletedIds([]); setNewItemIds([]); setGhostForm(EMPTY_GHOST_FORM);
+  }
 
   function startEdit() {
     setTripDraft({ name: trip.name, date: trip.date, paidBy: trip.paidBy });
@@ -766,24 +860,35 @@ function TripCard({ trip, tripItems, names, onUpdateTrip, onDeleteTrip, onUpdate
     setIsEditing(true);
   }
 
-  function cancelEdit() { setIsEditing(false); setTripDraft(null); setItemDrafts({}); }
+  function cancelEdit() { resetEditState(); }
 
   function saveEdit() {
-    if (!tripDraft?.name.trim() || !tripDraft.date || !tripDraft.paidBy) return;
+    if (!tripDraft?.name.trim() || !tripDraft.date || !tripDraft.paidBy || hasBlockingPending) return;
     // Validate all item drafts
     for (const id in itemDrafts) {
       const d = itemDrafts[id];
       const sA = parseFloat(d.shareA), sB = parseFloat(d.shareB);
-      if (!d.name.trim() || !(parseFloat(d.cost) > 0) || sA + sB !== 100) return;
+      if (!d.name.trim() || !(parseFloat(d.cost) > 0) || !totalIs100(sA + sB)) return;
     }
     onUpdateTrip({ ...trip, name: tripDraft.name.trim(), date: tripDraft.date, paidBy: tripDraft.paidBy });
+    const toItem = (base, d) => ({ ...base, name: d.name.trim(), cost: parseFloat(d.cost), shareA: parseFloat(d.shareA), shareB: parseFloat(d.shareB), paidBy: tripDraft.paidBy });
     for (const item of tripItems) {
-      const d = itemDrafts[item.id];
-      if (d) {
-        onUpdateItem({ ...item, name: d.name.trim(), cost: parseFloat(d.cost), shareA: parseFloat(d.shareA), shareB: parseFloat(d.shareB), paidBy: tripDraft.paidBy });
-      }
+      if (deletedIds.includes(item.id)) onDeleteItem(item.id);
+      else if (itemDrafts[item.id]) onUpdateItem(toItem(item, itemDrafts[item.id]));
     }
-    setIsEditing(false); setTripDraft(null); setItemDrafts({});
+    for (const id of newItemIds) {
+      onAddItem(toItem({ id, createdAt: Date.now(), groupId: trip.id }, itemDrafts[id]));
+    }
+    if (pendingItem) onAddItem({ ...newRecordMeta(), groupId: trip.id, ...pendingItem });
+    resetEditState();
+  }
+
+  function addItemInEdit(item) {
+    setItemDrafts(prev => ({
+      ...prev,
+      [item.id]: { name: item.name, cost: String(item.cost), shareA: String(item.shareA), shareB: String(item.shareB) },
+    }));
+    setNewItemIds(prev => [...prev, item.id]);
   }
 
   function updateItemDraft(id, draft) {
@@ -792,7 +897,8 @@ function TripCard({ trip, tripItems, names, onUpdateTrip, onDeleteTrip, onUpdate
 
   function deleteItemInEdit(id) {
     setItemDrafts(prev => { const next = { ...prev }; delete next[id]; return next; });
-    onDeleteItem(id);
+    if (newItemIds.includes(id)) setNewItemIds(prev => prev.filter(n => n !== id));
+    else setDeletedIds(prev => [...prev, id]);
   }
 
   function setTripDraftPaidBy(person) {
@@ -802,9 +908,9 @@ function TripCard({ trip, tripItems, names, onUpdateTrip, onDeleteTrip, onUpdate
   // Validation for save button
   const allItemDraftsValid = Object.values(itemDrafts).every(d => {
     const sA = parseFloat(d.shareA), sB = parseFloat(d.shareB);
-    return d.name.trim() && parseFloat(d.cost) > 0 && sA + sB === 100;
+    return d.name.trim() && parseFloat(d.cost) > 0 && totalIs100(sA + sB);
   });
-  const canSaveEdit = tripDraft?.name.trim() && tripDraft?.date && tripDraft?.paidBy && allItemDraftsValid;
+  const canSaveEdit = tripDraft?.name.trim() && tripDraft?.date && tripDraft?.paidBy && allItemDraftsValid && !hasBlockingPending;
 
   // ── Row 1: trip details / editable ──
   const row1 = isEditing && tripDraft ? (
@@ -899,21 +1005,22 @@ function TripCard({ trip, tripItems, names, onUpdateTrip, onDeleteTrip, onUpdate
       {/* Expanded body */}
       {expanded && (
         <div className="border-t border-stone-100 px-4 py-3 bg-stone-50/40">
-          {tripItems.length > 0 ? (
+          {(isEditing ? editItems : tripItems).length > 0 ? (
             <div className="flex flex-col gap-2">
-              {tripItems.map(item =>
+              {(isEditing ? editItems : tripItems).map(item =>
                 isEditing ? (
                   <TripItemEditRow
                     key={item.id}
                     item={item}
                     names={names}
                     paidBy={tripDraft?.paidBy ?? trip.paidBy}
-                    draft={itemDrafts[item.id] ?? { name: item.name, cost: String(item.cost), shareA: String(item.shareA), shareB: String(item.shareB) }}
+                    draft={itemDrafts[item.id]}
                     onChange={d => updateItemDraft(item.id, d)}
                     onDelete={deleteItemInEdit}
                   />
                 ) : (
-                  <TripItemRow key={item.id} item={item} names={names} />
+                  <TripItemRow key={item.id} item={item} names={names}
+                    dimmed={matchedItemIds != null && !matchedItemIds.has(item.id)} />
                 )
               )}
             </div>
@@ -926,9 +1033,10 @@ function TripCard({ trip, tripItems, names, onUpdateTrip, onDeleteTrip, onUpdate
             <div className="mt-3">
               <p className="text-xs font-mono text-stone-400 uppercase tracking-wider mb-2">Add Item to Trip</p>
               <TripItemGhostRow
-                key={tripDraft?.paidBy ?? trip.paidBy}
                 paidBy={tripDraft?.paidBy ?? trip.paidBy}
-                onCommit={newItem => onAddItem({ ...newItem, groupId: trip.id })}
+                form={ghostForm}
+                setForm={setGhostForm}
+                onCommit={addItemInEdit}
               />
             </div>
           )}
@@ -962,15 +1070,18 @@ function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUpdateTri
   const entries = [];
   for (const trip of trips) {
     const tripItems = items.filter(i => i.groupId === trip.id);
+    const tripNameMatches = !q || matchesSearch(trip.name, q);
     const matchedItems = q ? tripItems.filter(i => matchesSearch(i.name, q)) : tripItems;
-    if (!q || matchesSearch(trip.name, q) || matchedItems.length > 0) {
-      entries.push({ type: "trip", id: trip.id, trip, tripItems: q && !matchesSearch(trip.name, q) ? matchedItems : tripItems });
+    if (tripNameMatches || matchedItems.length > 0) {
+      // Cards always get the full item list; matchedItemIds only marks which items hit the search.
+      const matchedItemIds = q && !tripNameMatches ? new Set(matchedItems.map(i => i.id)) : null;
+      entries.push({ type: "trip", id: trip.id, sortTime: tripSortTime(trip), createdAt: trip.createdAt, trip, tripItems, matchedItemIds });
     }
   }
   for (const item of soloItems) {
-    if (!q || matchesSearch(item.name, q)) entries.push({ type: "item", id: item.id, item });
+    if (!q || matchesSearch(item.name, q)) entries.push({ type: "item", id: item.id, sortTime: item.createdAt, createdAt: item.createdAt, item });
   }
-  entries.sort((a, b) => b.id - a.id);
+  entries.sort((a, b) => b.sortTime - a.sortTime || b.createdAt - a.createdAt);
 
   const hasContent = items.length > 0 || trips.length > 0;
   const totalCost = items.reduce((s, i) => s + i.cost, 0);
@@ -1023,7 +1134,7 @@ function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUpdateTri
         <div className="flex flex-col gap-3">
           {entries.map(entry =>
             entry.type === "trip" ? (
-              <TripCard key={entry.id} trip={entry.trip} tripItems={entry.tripItems} names={names}
+              <TripCard key={entry.id} trip={entry.trip} tripItems={entry.tripItems} matchedItemIds={entry.matchedItemIds} names={names}
                 onUpdateTrip={onUpdateTrip} onDeleteTrip={onDeleteTrip}
                 onUpdateItem={onUpdateItem} onDeleteItem={onDeleteItem} onAddItem={onAddItem} />
             ) : (
@@ -1044,16 +1155,16 @@ export default function App() {
   const [trips, setTrips] = useState(() => loadTrips());
   const [names, setNames] = useState(() => loadNames());
 
-  useEffect(() => { localStorage.setItem(LS_ITEMS, JSON.stringify(items)); }, [items]);
-  useEffect(() => { localStorage.setItem(LS_TRIPS, JSON.stringify(trips)); }, [trips]);
-  useEffect(() => { localStorage.setItem(LS_NAMES, JSON.stringify(names)); }, [names]);
+  useEffect(() => { saveStored(LS_ITEMS, items); }, [items]);
+  useEffect(() => { saveStored(LS_TRIPS, trips); }, [trips]);
+  useEffect(() => { saveStored(LS_NAMES, names); }, [names]);
 
   function handleSaveItem(item) { setItems(prev => [item, ...prev]); }
 
   function handleSaveTrip(draft) {
-    const tripId = Date.now();
-    setTrips(prev => [{ id: tripId, name: draft.name.trim(), date: draft.date, paidBy: draft.paidBy }, ...prev]);
-    setItems(prev => [...draft.items.map((item, i) => ({ ...item, id: tripId + i + 1, groupId: tripId })), ...prev]);
+    const tripMeta = newRecordMeta();
+    setTrips(prev => [{ ...tripMeta, name: draft.name.trim(), date: draft.date, paidBy: draft.paidBy }, ...prev]);
+    setItems(prev => [...draft.items.map(item => ({ ...item, groupId: tripMeta.id })), ...prev]);
   }
 
   function handleUpdateItem(updated) { setItems(prev => prev.map(i => i.id === updated.id ? updated : i)); }
@@ -1068,7 +1179,6 @@ export default function App() {
   function handleClearAll() {
     if (window.confirm("Start fresh? This will clear all items and trips for the new week.")) {
       setItems([]); setTrips([]);
-      localStorage.removeItem(LS_ITEMS); localStorage.removeItem(LS_TRIPS);
     }
   }
 
