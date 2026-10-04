@@ -8,6 +8,14 @@ import { SERIF } from "../../lib/styles";
 
 export function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUpdateTrip, onDeleteTrip, onAddItem }) {
   const [search, setSearch] = useState("");
+  const hasContent = items.length > 0 || trips.length > 0;
+
+  // Clear the search when the list empties, so it doesn't silently filter items added later.
+  const [hadContent, setHadContent] = useState(hasContent);
+  if (hasContent !== hadContent) {
+    setHadContent(hasContent);
+    if (!hasContent) setSearch("");
+  }
   const q = search.trim();
 
   // Group trip items by trip id in one pass instead of filtering the full list per trip.
@@ -40,26 +48,10 @@ export function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUp
     return result.sort((a, b) => b.sortTime - a.sortTime || b.createdAt - a.createdAt);
   }, [trips, tripItemsById, soloItems, q]);
 
-  const hasContent = items.length > 0 || trips.length > 0;
   const totalCost = useMemo(() => items.reduce((s, i) => s + i.cost, 0), [items]);
 
   return (
     <div>
-      <div className="relative mb-4">
-        <label htmlFor="item-list-search" className="sr-only">Search items by name</label>
-        <input id="item-list-search" type="text" role="searchbox" autoComplete="off"
-          placeholder="Search items or trips…" value={search} onChange={e => setSearch(e.target.value)}
-          className="w-full bg-stone-50 border border-stone-300 rounded-xl pl-3 pr-10 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition" />
-        {search.length > 0 && (
-          <button type="button" onClick={() => setSearch("")} aria-label="Clear search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/80 transition-colors">
-            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
-            </svg>
-          </button>
-        )}
-      </div>
-
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg text-stone-800" style={SERIF}>Items</h2>
         {hasContent && (
@@ -76,6 +68,23 @@ export function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUp
           </div>
         )}
       </div>
+
+      {hasContent && (
+        <div className="relative mb-4">
+          <label htmlFor="item-list-search" className="sr-only">Search items by name</label>
+          <input id="item-list-search" type="text" role="searchbox" autoComplete="off"
+            placeholder="Search items or trips…" value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full bg-stone-50 border border-stone-300 rounded-xl pl-3 pr-10 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition" />
+          {search.length > 0 && (
+            <button type="button" onClick={() => setSearch("")} aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/80 transition-colors">
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
 
       {!hasContent ? (
         <div className="text-center py-16 text-stone-300 border border-dashed border-stone-200 rounded-2xl">
