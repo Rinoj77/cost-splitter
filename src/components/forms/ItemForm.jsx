@@ -4,6 +4,7 @@ import { ItemColHeaders } from "../ui/ColHeaders";
 import { PaidIndicator } from "../ui/PaidIndicator";
 import { PaidToggle } from "../ui/PaidToggle";
 import { ShareCell } from "../ui/ShareCell";
+import { SplitPresets } from "../ui/SplitPresets";
 import { handleShareChange, newRecordMeta, shareTotal, validateItem } from "../../lib/items";
 import { totalIs100 } from "../../lib/ledger";
 import { ITEM_COLS_DEL, inputBase } from "../../lib/styles";
@@ -44,6 +45,8 @@ export function ItemForm({ names, autoFocus = false, onSave }) {
         </div>
         <div />
       </div>
+      <SplitPresets names={names} shareA={form.shareA} shareB={form.shareB} className="mt-2"
+        onPick={(shareA, shareB) => setForm(f => ({ ...f, shareA, shareB }))} />
       {hasShareInput && !sharesValid && (
         <p className="text-xs text-rose-500 font-mono mt-2">⚠ Shares must add up to exactly 100% (currently {total}%)</p>
       )}

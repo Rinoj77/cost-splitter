@@ -19,6 +19,8 @@ export function TripForm({ names, onSave, onDraftChange }) {
   const [draft, setDraft] = useState(newTripDraft);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [ghostForm, setGhostForm] = useState(EMPTY_GHOST_FORM);
+  // Split preset chips show under the row last focused ("ghost" or an item id).
+  const [presetRowId, setPresetRowId] = useState("ghost");
 
   // A complete ghost-row item is included on Save; a half-filled one blocks Save.
   const pendingItem = validateItem(ghostForm, draft.paidBy);
@@ -96,13 +98,16 @@ export function TripForm({ names, onSave, onDraftChange }) {
           <div className="flex flex-col gap-1.5 mb-2">
             {draft.items.map(fields => (
               <TripDraftItemRow key={fields.id} fields={fields} paidBy={draft.paidBy}
-                invalid={!fieldsValid(fields)} onChange={updateItem} onRemove={() => removeItem(fields.id)} />
+                invalid={!fieldsValid(fields)} onChange={updateItem} onRemove={() => removeItem(fields.id)}
+                names={names} showPresets={presetRowId === fields.id} onFocus={() => setPresetRowId(fields.id)} />
             ))}
           </div>
         )}
 
         {/* Ghost input row */}
-        <TripItemGhostRow paidBy={draft.paidBy} form={ghostForm} setForm={setGhostForm} onCommit={addItem} />
+        <TripItemGhostRow paidBy={draft.paidBy} form={ghostForm} setForm={setGhostForm} onCommit={addItem}
+          names={names} showPresets={presetRowId === "ghost" || !draft.items.some(i => i.id === presetRowId)}
+          onFocus={() => setPresetRowId("ghost")} />
       </div>
 
       {/* Actions */}

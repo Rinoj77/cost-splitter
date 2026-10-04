@@ -33,7 +33,7 @@ src/
     ├── NetBalanceSummary.jsx
     ├── WelcomeCard.jsx           ← "How it works" card: first-visit (Start / Try with sample data) or reopened (✕ / sample)
     ├── DemoBanner.jsx            ← "You're viewing sample data · Exit demo"
-    ├── ui/                       ← ConfirmPopup, Tag, PaidToggle, PaidIndicator, EditableName, ColHeaders, ShareCell
+    ├── ui/                       ← ConfirmPopup, Tag, PaidToggle, PaidIndicator, EditableName, ColHeaders, ShareCell, SplitPresets
     ├── items/                    ← ItemDisplayRow, SharesFooter, ReadOnlyItem, ItemRow, ItemList
     ├── trips/                    ← TripCard, TripItemEditRow
     └── forms/                    ← ItemForm, TripItemGhostRow, TripDraftItemRow, TripForm, FormTabContainer
@@ -104,7 +104,7 @@ App                          ← root state (items, trips, names)
         └── TripItemGhostRow  ← ghost row shown at bottom only during Edit Trip mode
 ```
 
-Shared building blocks: `ShareCell` (the "NN %" input), `ItemDisplayRow` (read-only item cells), `SharesFooter` (the two share boxes plus optional action buttons), and `ReadOnlyItem` (a full read-only item card; `nested` is the lighter style inside a trip).
+Shared building blocks: `ShareCell` (the "NN %" input), `SplitPresets` ("Quick split (A / B):" chips 50/50, 70/30, 60/40, 20/80, 0/100 plus a ⇄ swap; shown in Add Item and, in Add Trip, under the last-focused row only; chips use `onMouseDown` preventDefault so they don't steal focus), `ItemDisplayRow` (read-only item cells), `SharesFooter` (the two share boxes plus optional action buttons), and `ReadOnlyItem` (a full read-only item card; `nested` is the lighter style inside a trip).
 
 `EditableName` is a small inline-edit component used in the header for renaming users.
 

@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { PaidIndicator } from "../ui/PaidIndicator";
 import { ShareCell } from "../ui/ShareCell";
+import { SplitPresets } from "../ui/SplitPresets";
 import { EMPTY_GHOST_FORM, handleShareChange, hasGhostInput, newRecordMeta, shareTotal, validateItem } from "../../lib/items";
 import { totalIs100 } from "../../lib/ledger";
 import { ITEM_COLS_DEL } from "../../lib/styles";
@@ -9,7 +10,7 @@ import { ITEM_COLS_DEL } from "../../lib/styles";
 // level, so it is shown as a PaidIndicator, not a toggle.
 // Controlled: the parent owns `form` so it can include a pending item on Save, warn
 // about it as unsaved data, and keep it when the trip payer changes.
-export function TripItemGhostRow({ paidBy, form, setForm, onCommit }) {
+export function TripItemGhostRow({ paidBy, form, setForm, onCommit, names = null, showPresets = false, onFocus }) {
   const nameRef = useRef(null);
 
   const total = shareTotal(form.shareA, form.shareB);
@@ -28,7 +29,7 @@ export function TripItemGhostRow({ paidBy, form, setForm, onCommit }) {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5" onFocus={onFocus}>
       {/* Active input row */}
       <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-3 py-2 rounded-xl border bg-white ${hasAnyInput ? "border-stone-300" : "border-dashed border-stone-200"}`}>
         <input ref={nameRef} type="text" placeholder="Item name…" value={form.name}
@@ -46,6 +47,10 @@ export function TripItemGhostRow({ paidBy, form, setForm, onCommit }) {
         <div className="flex justify-center"><PaidIndicator checked={paidBy === "b"} /></div>
         <div />
       </div>
+      {showPresets && names && (
+        <SplitPresets names={names} shareA={form.shareA} shareB={form.shareB} className="px-3"
+          onPick={(shareA, shareB) => setForm(f => ({ ...f, shareA, shareB }))} />
+      )}
       {hasAnyInput && !sharesValid && form.shareA !== "" && (
         <p className="text-xs text-rose-500 font-mono px-3">⚠ Shares must add up to 100% (currently {total}%)</p>
       )}
