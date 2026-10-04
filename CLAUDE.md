@@ -19,17 +19,20 @@ Single-page React app with no routing and no external state library. `src/App.js
 
 ```
 src/
-├── App.jsx                       ← root: items / trips / names state and CRUD handlers
+├── App.jsx                       ← root: saved vs demo data, onboarding, CRUD handlers
 ├── lib/
 │   ├── storage.js                ← localStorage keys, validators, load/save, id migration
 │   ├── ledger.js                 ← itemShares, computeBalances, computeTripShares, totalIs100
 │   ├── items.js                  ← newRecordMeta, validateItem, shareTotal, handleShareChange, ghost-form helpers
 │   ├── format.js                 ← formatDate, todayISO, tripSortTime
 │   ├── search.js                 ← matchesSearch (fuzzy name match)
+│   ├── sample.js                 ← makeSampleData() for demo mode
 │   └── styles.js                 ← grid-column strings, input class strings, SERIF
 ├── hooks/useStoredState.js       ← useState that loads from / saves to localStorage
 └── components/
     ├── NetBalanceSummary.jsx
+    ├── WelcomeCard.jsx           ← "How it works" card: first-visit (Start / Try with sample data) or reopened (✕ / sample)
+    ├── DemoBanner.jsx            ← "You're viewing sample data · Exit demo"
     ├── ui/                       ← ConfirmPopup, Tag, PaidToggle, PaidIndicator, EditableName, ColHeaders, ShareCell
     ├── items/                    ← ItemDisplayRow, SharesFooter, ReadOnlyItem, ItemRow, ItemList
     ├── trips/                    ← TripCard, TripItemEditRow
@@ -52,14 +55,17 @@ Trips are stored separately:
 ```
 Ids come from `newRecordMeta()` (`crypto.randomUUID()` plus `createdAt`). Older saved data used numeric `Date.now()` ids; `migrateRecord` converts them to strings on load and uses the old id as `createdAt`.
 
-Two users are always referred to internally as `"a"` and `"b"`. Display names are stored separately in `names: { a: string, b: string }`.
+Two users are always referred to internally as `"a"` and `"b"`. Display names are stored separately in `names: { a: string, b: string }`. Names default to empty strings; `App` passes `displayNames` (empty → "You" / "Partner") to every component, and the header's `EditableName` shows the placeholder with a pencil icon.
 
-**Persistence** — three `localStorage` keys, exported from `lib/storage.js`:
+**Persistence** — four `localStorage` keys, exported from `lib/storage.js`:
 - `splittab_items` — the item array (solo + trip-grouped items together)
 - `splittab_names` — the `{ a, b }` names object
 - `splittab_trips` — the trip array
+- `splittab_onboarded` — `true` once the welcome card's Start was clicked (`loadOnboarded` also treats users with existing items or non-empty names as onboarded)
 
 `App` reads them with `useStoredState(key, loader)`, which loads once (via `loadStored`, which validates the shape and falls back to defaults on bad data) and writes back on every change (`saveStored` catches quota/private-mode errors and only logs a warning).
+
+**First visit and demo mode** — until onboarded, `App` shows only the header (title, intro line, names) and `WelcomeCard`. Start sets the flag and focuses the Add Item name field. "Try with sample data" puts `makeSampleData()` into `demo` state: every handler then edits that in-memory copy instead of the saved data (nothing in demo mode is saved), and `DemoBanner` offers Exit demo, which returns to wherever the user was. After onboarding, a "How it works" link under the names pill toggles the same `WelcomeCard` (reopened variant: close ✕, only "Try with sample data", hidden in demo mode); it slides open via a `grid-rows-[0fr]` → `[1fr]` transition and is `inert` while closed.
 
 **Ledger calculation** — pure helpers in `lib/ledger.js`:
 - `itemShares(cost, shareA, shareB)` — each person's share in euros, rounded to cents so the two shares always add up to the item cost.

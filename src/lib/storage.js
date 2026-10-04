@@ -4,7 +4,10 @@ export const LS_NAMES = "splittab_names";
 
 export const LS_TRIPS = "splittab_trips";
 
-const DEFAULT_NAMES = { a: "Alex", b: "Blake" };
+export const LS_ONBOARDED = "splittab_onboarded";
+
+// Empty names show as "You" / "Partner" placeholders until the user renames them.
+const DEFAULT_NAMES = { a: "", b: "" };
 
 const isObject = v => v !== null && typeof v === "object";
 
@@ -48,5 +51,10 @@ export const loadTrips = () => loadStored(LS_TRIPS, [], v => Array.isArray(v) &&
 
 export const loadNames = () => loadStored(LS_NAMES, DEFAULT_NAMES, isStoredNames);
 
-// ─── Grid template constants ───────────────────────────────────────────────────
-// Shared across headers, display rows, and input rows for perfect alignment.
+// True once the user clicked Start on the welcome card. Visitors from before the welcome
+// card existed (saved items or non-empty names) count as onboarded too.
+export function loadOnboarded() {
+  if (loadStored(LS_ONBOARDED, false, v => typeof v === "boolean")) return true;
+  const names = loadNames();
+  return loadItems().length > 0 || loadTrips().length > 0 || names.a !== "" || names.b !== "";
+}

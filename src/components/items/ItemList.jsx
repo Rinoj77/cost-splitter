@@ -87,9 +87,12 @@ export function ItemList({ items, trips, names, onUpdateItem, onDeleteItem, onUp
       )}
 
       {!hasContent ? (
-        <div className="text-center py-16 text-stone-300 border border-dashed border-stone-200 rounded-2xl">
+        <div className="text-center py-14 px-6 border border-dashed border-stone-200 rounded-2xl">
           <p className="text-4xl mb-3">🧾</p>
-          <p className="font-mono text-sm">No items yet. Add one above.</p>
+          <p className="text-stone-600 font-medium mb-1">Nothing to split yet</p>
+          <p className="text-sm text-stone-400 max-w-md mx-auto">
+            Add an item or a whole shopping trip above. Set each person&apos;s share, mark who paid, and the balance shows who owes whom.
+          </p>
         </div>
       ) : entries.length === 0 ? (
         <div className="text-center py-14 text-stone-400 border border-dashed border-stone-200 rounded-2xl bg-white/50">

@@ -3,7 +3,7 @@ import { ItemForm } from "./ItemForm";
 import { TripForm } from "./TripForm";
 import { ConfirmPopup } from "../ui/ConfirmPopup";
 
-export function FormTabContainer({ names, onSaveItem, onSaveTrip }) {
+export function FormTabContainer({ names, autoFocus = false, onSaveItem, onSaveTrip }) {
   const [activeTab, setActiveTab] = useState("item");
   const [tripFormKey, setTripFormKey] = useState(0);
   const [tripHasData, setTripHasData] = useState(false);
@@ -38,7 +38,7 @@ export function FormTabContainer({ names, onSaveItem, onSaveTrip }) {
       </div>
       <div className="p-5">
         {activeTab === "item"
-          ? <ItemForm names={names} onSave={onSaveItem} />
+          ? <ItemForm names={names} autoFocus={autoFocus} onSave={onSaveItem} />
           : <TripForm key={tripFormKey} names={names} onSave={onSaveTrip} onDraftChange={setTripHasData} />
         }
       </div>

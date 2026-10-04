@@ -10,7 +10,7 @@ import { ITEM_COLS_DEL, inputBase } from "../../lib/styles";
 
 const EMPTY_FORM = { name: "", cost: "", shareA: "", shareB: "", paidBy: null };
 
-export function ItemForm({ names, onSave }) {
+export function ItemForm({ names, autoFocus = false, onSave }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const total = shareTotal(form.shareA, form.shareB);
   const sharesValid = totalIs100(total);
@@ -28,7 +28,7 @@ export function ItemForm({ names, onSave }) {
     <div>
       <div className="mb-1"><ItemColHeaders names={names} /></div>
       <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center`}>
-        <input type="text" placeholder="e.g. Pasta, Shampoo…" value={form.name}
+        <input type="text" placeholder="e.g. Pasta, Shampoo…" value={form.name} autoFocus={autoFocus}
           onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className={inputBase} />
         <input type="number" placeholder="0.00" min="0" step="0.01" value={form.cost}
           onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} className={`${inputBase} font-mono text-right`} />

@@ -15,7 +15,12 @@ export function formatDate(dateStr) {
 
 // Local calendar date as YYYY-MM-DD (toISOString would give the UTC date).
 export function todayISO() {
+  return daysAgoISO(0);
+}
+
+export function daysAgoISO(days) {
   const d = new Date();
+  d.setDate(d.getDate() - days);
   const pad = n => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
