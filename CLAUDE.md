@@ -11,7 +11,7 @@ npm run preview   # Serve the dist/ build locally
 npm run lint      # ESLint (flat config, js/jsx files)
 ```
 
-There are no tests in this project.
+There are no automated tests. For a manual calculation check, open the dev server with `?testdata` (dev-only loader in `src/lib/testData.js`) and follow `docs/calculation-test.md`; keep the two in sync if either changes.
 
 ## Architecture
 
