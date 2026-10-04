@@ -36,7 +36,7 @@ src/
     ├── ui/                       ← ConfirmPopup, Tag, PaidToggle, PaidIndicator, EditableName, ColHeaders, ShareCell
     ├── items/                    ← ItemDisplayRow, SharesFooter, ReadOnlyItem, ItemRow, ItemList
     ├── trips/                    ← TripCard, TripItemEditRow
-    └── forms/                    ← ItemForm, TripItemGhostRow, TripForm, FormTabContainer
+    └── forms/                    ← ItemForm, TripItemGhostRow, TripDraftItemRow, TripForm, FormTabContainer
 ```
 
 Component files export only components (the `react-refresh` lint rule); shared constants and helpers live in `lib/`.
@@ -93,13 +93,14 @@ App                          ← root state (items, trips, names)
 │   ├── ItemForm              ← controlled form for solo items
 │   │   └── PaidToggle        ← animated toggle, mutually exclusive A / B
 │   └── TripForm              ← trip header + item ghost row; saves whole trip at once
+│       ├── TripDraftItemRow (×n) ← added items stay editable (string fields, red outline if invalid)
 │       ├── TripItemGhostRow  ← controlled input row; "+ Add another item…" commits & resets
 │       └── PaidIndicator     ← read-only toggle (paidBy locked to trip level)
 └── ItemList                  ← search + list; renders solo rows and trip cards
-    ├── ItemRow (×n)          ← solo item; read view is ReadOnlyItem, inline edit/delete
+    ├── ItemRow (×n)          ← solo item; read view is ReadOnlyItem, inline edit/delete (red outline if invalid)
     └── TripCard (×n)         ← collapsed 2-row card; expands accordion to show items
         ├── ReadOnlyItem (nested, ×n) ← read-only item inside an expanded trip
-        ├── TripItemEditRow   ← editable item row shown during Edit Trip mode
+        ├── TripItemEditRow   ← editable item row shown during Edit Trip mode (red outline if invalid)
         └── TripItemGhostRow  ← ghost row shown at bottom only during Edit Trip mode
 ```
 
@@ -107,7 +108,7 @@ Shared building blocks: `ShareCell` (the "NN %" input), `ItemDisplayRow` (read-o
 
 `EditableName` is a small inline-edit component used in the header for renaming users.
 
-**Trip editing** — "Edit Trip" enters a unified edit mode: the trip header and all its items become editable simultaneously via a `tripDraft` + `itemDrafts` map held in `TripCard` state. Deleted items (`deletedIds`) and newly added items (`newItemIds`) are also held in draft state, so nothing changes until the single Save, and Cancel discards everything. The ghost row at the bottom adds new items during editing; a complete pending ghost-row item is included on Save and a half-filled one blocks Save. `paidBy` is always locked to the trip-level toggle and shown as a read-only `PaidIndicator` inside item rows. `TripCard` always receives all of a trip's items; while a search matches only some of them, `matchedItemIds` marks the hits (the card stays open and the rest are dimmed).
+**Trip editing** — "Edit Trip" enters a unified edit mode: the trip header and all its items become editable simultaneously via a `tripDraft` + `itemDrafts` map held in `TripCard` state. Deleted items (`deletedIds`) and newly added items (`newItemIds`) are also held in draft state, so nothing changes until the single Save, and Cancel discards everything. The ghost row at the bottom adds new items during editing; a complete pending ghost-row item is included on Save and a half-filled one blocks Save. While Save is disabled, a hint under the card says why (same wording and order as the Add Trip tab). `paidBy` is always locked to the trip-level toggle and shown as a read-only `PaidIndicator` inside item rows. `TripCard` always receives all of a trip's items; while a search matches only some of them, `matchedItemIds` marks the hits (the card stays open and the rest are dimmed).
 
 **Stable callback pattern** — `TripForm` (`components/forms/TripForm.jsx`) uses a `useRef` wrapper for the `onDraftChange` callback to satisfy `react-hooks/exhaustive-deps` without re-running the effect on every render:
 ```js

@@ -29,8 +29,10 @@ export function ItemRow({ item, names, onSave, onDelete }) {
     const total = shareTotal(form.shareA, form.shareB);
     const sharesValid = totalIs100(total);
     const shares = itemShares(parseFloat(form.cost), parseFloat(form.shareA), parseFloat(form.shareB));
+    // Red outline for bad name/cost/shares, like trip rows; a missing payer only disables Save.
+    const fieldsInvalid = validateItem(form, "a") === null;
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden">
+      <div className={`border rounded-xl shadow-sm overflow-hidden ${fieldsInvalid ? "bg-rose-50/60 border-rose-300" : "bg-amber-50 border-amber-200"}`}>
         <div className="px-4 pt-3 pb-1"><ItemColHeaders names={names} /></div>
         <div className={`grid ${ITEM_COLS_DEL} gap-3 items-center px-4 pb-3`}>
           <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className={inputAmber} />

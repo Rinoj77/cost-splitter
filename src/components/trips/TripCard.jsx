@@ -92,6 +92,14 @@ export function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip,
   }
 
   const canSaveEdit = tripDraft?.name.trim() && tripDraft?.date && tripDraft?.paidBy && allItemDraftsValid && !hasBlockingPending;
+  // Why Save is disabled, in the same order and wording as the Add Trip tab.
+  const hasInvalidItems = Object.values(itemDrafts).some(d => validateItem(d, "a") === null);
+  const saveHint = !isEditing || canSaveEdit ? null
+    : !tripDraft?.name.trim() ? "Enter a trip name"
+    : !tripDraft?.paidBy ? "Select who paid"
+    : hasInvalidItems ? "Fix the highlighted items"
+    : hasBlockingPending ? "Finish or clear the pending item"
+    : null;
 
   // ── Row 1: trip details / editable ──
   const row1 = isEditing && tripDraft ? (
@@ -172,6 +180,9 @@ export function TripCard({ trip, tripItems, matchedItemIds, names, onUpdateTrip,
 
       {row1}
       {row2}
+      {saveHint && (
+        <p className="px-4 py-2 text-xs font-mono text-stone-400 text-right border-t border-stone-100">{saveHint}</p>
+      )}
 
       {/* Expanded body */}
       {expanded && (

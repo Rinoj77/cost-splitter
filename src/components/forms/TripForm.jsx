@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { TripItemGhostRow } from "./TripItemGhostRow";
-import { ItemDisplayRow } from "../items/ItemDisplayRow";
+import { TripDraftItemRow } from "./TripDraftItemRow";
 import { ItemColHeaders, TripMetaColHeaders } from "../ui/ColHeaders";
 import { ConfirmPopup } from "../ui/ConfirmPopup";
 import { PaidToggle } from "../ui/PaidToggle";
@@ -8,7 +8,12 @@ import { todayISO } from "../../lib/format";
 import { EMPTY_GHOST_FORM, hasGhostInput, newRecordMeta, validateItem } from "../../lib/items";
 import { TRIP_COLS, inputBase } from "../../lib/styles";
 
+// draft.items hold editable string fields ({ id, createdAt, name, cost, shareA, shareB });
+// they're validated and turned into numbers on Save, with paidBy taken from the trip.
 const newTripDraft = () => ({ name: "", date: todayISO(), paidBy: null, items: [] });
+
+// An item row is valid when its own fields are; paidBy comes from the trip, so any payer works here.
+const fieldsValid = fields => validateItem(fields, "a") !== null;
 
 export function TripForm({ names, onSave, onDraftChange }) {
   const [draft, setDraft] = useState(newTripDraft);
@@ -20,9 +25,10 @@ export function TripForm({ names, onSave, onDraftChange }) {
   const hasPendingInput = hasGhostInput(ghostForm);
   const hasBlockingPending = hasPendingInput && !pendingItem;
   const itemCount = draft.items.length + (pendingItem ? 1 : 0);
+  const hasInvalidItems = draft.items.some(f => !fieldsValid(f));
 
   const hasDraftData = draft.name.trim() !== "" || draft.items.length > 0 || hasPendingInput;
-  const canSave = draft.name.trim() && draft.date && draft.paidBy !== null && itemCount > 0 && !hasBlockingPending;
+  const canSave = draft.name.trim() && draft.date && draft.paidBy !== null && itemCount > 0 && !hasBlockingPending && !hasInvalidItems;
 
   const onDraftChangeRef = useRef(onDraftChange);
   useEffect(() => { onDraftChangeRef.current = onDraftChange; });
@@ -36,21 +42,22 @@ export function TripForm({ names, onSave, onDraftChange }) {
 
   function handleSave() {
     if (!canSave) return;
-    const items = pendingItem ? [...draft.items, { ...newRecordMeta(), ...pendingItem }] : draft.items;
+    const items = draft.items.map(({ id, createdAt, ...fields }) => ({ id, createdAt, ...validateItem(fields, draft.paidBy) }));
+    if (pendingItem) items.push({ ...newRecordMeta(), ...pendingItem });
     onSave({ ...draft, items });
     setDraft(newTripDraft());
     setGhostForm(EMPTY_GHOST_FORM);
   }
 
-  function addItem(item) { setDraft(d => ({ ...d, items: [...d.items, item] })); }
+  function addItem({ id, createdAt, name, cost, shareA, shareB }) {
+    const fields = { id, createdAt, name, cost: String(cost), shareA: String(shareA), shareB: String(shareB) };
+    setDraft(d => ({ ...d, items: [...d.items, fields] }));
+  }
+  function updateItem(fields) { setDraft(d => ({ ...d, items: d.items.map(i => i.id === fields.id ? fields : i) })); }
   function removeItem(id) { setDraft(d => ({ ...d, items: d.items.filter(i => i.id !== id) })); }
 
   function setTripPaidBy(person) {
-    setDraft(d => ({
-      ...d,
-      paidBy: d.paidBy === person ? null : person,
-      items: d.items.map(i => ({ ...i, paidBy: d.paidBy === person ? null : person })),
-    }));
+    setDraft(d => ({ ...d, paidBy: d.paidBy === person ? null : person }));
   }
 
   return (
@@ -87,13 +94,9 @@ export function TripForm({ names, onSave, onDraftChange }) {
         {/* Committed items */}
         {draft.items.length > 0 && (
           <div className="flex flex-col gap-1.5 mb-2">
-            {draft.items.map(item => (
-              <ItemDisplayRow key={item.id} item={item} compact
-                className="px-3 py-2 bg-white rounded-xl border border-stone-100"
-                action={
-                  <button onClick={() => removeItem(item.id)}
-                    className="text-xs font-mono text-stone-300 hover:text-rose-400 transition-colors text-center">✕</button>
-                } />
+            {draft.items.map(fields => (
+              <TripDraftItemRow key={fields.id} fields={fields} paidBy={draft.paidBy}
+                invalid={!fieldsValid(fields)} onChange={updateItem} onRemove={() => removeItem(fields.id)} />
             ))}
           </div>
         )}
@@ -111,7 +114,7 @@ export function TripForm({ names, onSave, onDraftChange }) {
         <div className="flex items-center gap-3">
           {!canSave && (
             <span className="text-xs font-mono text-stone-400">
-              {!draft.name.trim() ? "Enter a trip name" : draft.paidBy === null ? "Select who paid" : hasBlockingPending ? "Finish or clear the pending item" : itemCount === 0 ? "Add at least one item" : ""}
+              {!draft.name.trim() ? "Enter a trip name" : draft.paidBy === null ? "Select who paid" : hasInvalidItems ? "Fix the highlighted items" : hasBlockingPending ? "Finish or clear the pending item" : itemCount === 0 ? "Add at least one item" : ""}
             </span>
           )}
           <button onClick={handleSave} disabled={!canSave}
